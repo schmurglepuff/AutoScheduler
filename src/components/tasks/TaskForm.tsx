@@ -22,10 +22,11 @@ interface TaskFormProps {
     people_notes: PersonNoteEntry[];
   }) => void;
   onCancel: () => void;
+  onDelete?: () => void;
   isSubmitting?: boolean;
 }
 
-export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: TaskFormProps) {
+export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
   const [estimatedMin, setEstimatedMin] = useState(String(initialTask?.estimated_min || 60));
@@ -116,13 +117,22 @@ export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: Task
         </label>
       )}
       <PersonNoteInput notes={notes} onChange={setNotes} />
-      <div className="flex gap-2 justify-end pt-2">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isSubmitting || !title.trim() || !deadline}>
-          {initialTask ? 'Update Task' : 'Create Task'}
-        </Button>
+      <div className="flex gap-2 justify-between pt-2">
+        {onDelete ? (
+          <Button type="button" variant="danger" onClick={onDelete}>
+            Delete
+          </Button>
+        ) : (
+          <div />
+        )}
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isSubmitting || !title.trim() || !deadline}>
+            {initialTask ? 'Update Task' : 'Create Task'}
+          </Button>
+        </div>
       </div>
     </form>
   );
