@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { addDays } from '../../utils/dateHelpers';
 
 interface WeekNavigatorProps {
@@ -5,6 +6,7 @@ interface WeekNavigatorProps {
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
+  trailing?: ReactNode;
 }
 
 function formatMonth(start: Date, end: Date): string {
@@ -17,15 +19,12 @@ function formatMonth(start: Date, end: Date): string {
   return `${start.toLocaleDateString([], { month: 'short' })} – ${end.toLocaleDateString([], { month: 'short' })} ${year}`;
 }
 
-export function WeekNavigator({ weekStart, onPrev, onNext, onToday }: WeekNavigatorProps) {
+export function WeekNavigator({ weekStart, onPrev, onNext, onToday, trailing }: WeekNavigatorProps) {
   const weekEnd = addDays(weekStart, 6);
 
   return (
-    <div className="flex items-center justify-between">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
-        {formatMonth(weekStart, weekEnd)}
-      </h2>
-      <div className="flex items-center gap-1">
+    <div className="flex items-center">
+      <div className="flex items-center gap-3 flex-1 justify-center">
         <button
           onClick={onPrev}
           className="p-2 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -40,6 +39,9 @@ export function WeekNavigator({ weekStart, onPrev, onNext, onToday }: WeekNaviga
         >
           Today
         </button>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+          {formatMonth(weekStart, weekEnd)}
+        </h2>
         <button
           onClick={onNext}
           className="p-2 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -48,6 +50,7 @@ export function WeekNavigator({ weekStart, onPrev, onNext, onToday }: WeekNaviga
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>
+        {trailing && <div className="ml-3">{trailing}</div>}
       </div>
     </div>
   );

@@ -102,11 +102,59 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     },
   });
 
+  const resizeTaskSlots = useMutation({
+    mutationFn: async ({ task_id, estimated_min }: { task_id: string; estimated_min: number }) => {
+      // Get existing slots for this task, ordered by start_time
+      const { data: existing, error: fetchErr } = await supabase
+        .from('schedule_slots')
+        .select('*')
+        .eq('task_id', task_id)
+        .order('start_time', { ascending: true });
+      if (fetchErr) throw fetchErr;
+      if (!existing || existing.length === 0) return;
+
+      // Use the earliest slot's start_time as the anchor
+      const anchorStart = existing[0].start_time;
+
+      // Delete all existing slots for this task
+      const { error: delErr } = await supabase
+        .from('schedule_slots')
+        .delete()
+        .eq('task_id', task_id);
+      if (delErr) throw delErr;
+
+      // Create a single new slot from anchor with the new duration
+      const start = new Date(anchorStart);
+      const end = new Date(start.getTime() + estimated_min * 60 * 1000);
+      const { error: insErr } = await supabase
+        .from('schedule_slots')
+        .insert({ task_id, start_time: start.toISOString(), end_time: end.toISOString() });
+      if (insErr) throw insErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
+  const addSlot = useMutation({
+    mutationFn: async ({ task_id, start_time, end_time }: { task_id: string; start_time: string; end_time: string }) => {
+      const { error } = await supabase
+        .from('schedule_slots')
+        .insert({ task_id, start_time, end_time });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
   return {
     slots: slotsQuery.data || [],
     isLoading: slotsQuery.isLoading,
     regenerate,
     moveSlot,
     toggleLock,
+    resizeTaskSlots,
+    addSlot,
   };
 }

@@ -10,6 +10,7 @@ import {
   useSensors,
   pointerWithin,
 } from '@dnd-kit/core';
+import type { ReactNode } from 'react';
 import type { ScheduleSlot, Settings } from '../../types';
 import { startOfWeek, addDays, getHoursArray, parseTimeString } from '../../utils/dateHelpers';
 import { WeekNavigator } from './WeekNavigator';
@@ -22,6 +23,8 @@ interface WeeklyCalendarProps {
   onSlotClick?: (slot: ScheduleSlot) => void;
   onMoveSlot?: (id: string, startTime: string, endTime: string) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onCreateTask?: (startTime: Date) => void;
+  autoScheduleButton?: ReactNode;
 }
 
 /** Parse a droppable cell ID like "cell-2026-02-19-9-30" into a local Date */
@@ -40,7 +43,7 @@ function parseCellId(cellId: string): Date | null {
   );
 }
 
-export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock }: WeeklyCalendarProps) {
+export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock, onCreateTask, autoScheduleButton }: WeeklyCalendarProps) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
@@ -112,6 +115,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
         onPrev={() => setWeekOffset((o) => o - 1)}
         onNext={() => setWeekOffset((o) => o + 1)}
         onToday={() => setWeekOffset(0)}
+        trailing={autoScheduleButton}
       />
       <DndContext
         sensors={sensors}
@@ -126,7 +130,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
             <div className="h-[62px]" />
             {hours.map((hour) => (
               <div key={hour} className="h-16 relative">
-                <span className="absolute -top-2 right-3 text-[11px] text-gray-400 dark:text-gray-600 font-medium tabular-nums">
+                <span className="absolute top-0 -translate-y-1/2 right-3 text-[11px] text-gray-400 dark:text-gray-600 font-medium tabular-nums">
                   {hour.toString().padStart(2, '0')}:00
                 </span>
               </div>
@@ -141,6 +145,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
               slots={slots}
               onSlotClick={onSlotClick}
               onToggleLock={onToggleLock}
+              onCreateTask={onCreateTask}
               overCellId={overCellId}
             />
           ))}
