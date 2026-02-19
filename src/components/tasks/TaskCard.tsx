@@ -21,7 +21,7 @@ export function TaskCard({ task, onClick, onToggleComplete }: TaskCardProps) {
     opacity: isDragging ? 0.5 : undefined,
   };
 
-  const isOverdue = !task.completed && new Date(task.deadline) < new Date();
+  const isOverdue = !task.completed && task.deadline !== null && new Date(task.deadline) < new Date();
 
   return (
     <div
@@ -75,7 +75,7 @@ export function TaskCard({ task, onClick, onToggleComplete }: TaskCardProps) {
           )}
           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
             <span>{task.estimated_min} min</span>
-            <span>Due: {new Date(task.deadline).toLocaleDateString()}</span>
+            <span>{task.deadline ? `Due: ${new Date(task.deadline).toLocaleDateString()}` : 'No deadline'}</span>
           </div>
           {task.people_notes && task.people_notes.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">

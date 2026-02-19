@@ -17,7 +17,7 @@ interface TaskFormProps {
     title: string;
     description: string;
     estimated_min: number;
-    deadline: string;
+    deadline: string | null;
     priority: Priority;
     completed: boolean;
     people_notes: PersonNoteEntry[];
@@ -92,7 +92,9 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
   const [estHours, setEstHours] = useState(initEst.hours);
   const [estMins, setEstMins] = useState(initEst.mins);
 
-  const initDl = parseInitialDeadline(initialTask?.deadline || defaultDeadline);
+  const hasNoDeadline = initialTask ? initialTask.deadline === null : false;
+  const initDl = parseInitialDeadline(initialTask?.deadline || defaultDeadline || undefined);
+  const [noDeadline, setNoDeadline] = useState(hasNoDeadline);
   const [dlDate, setDlDate] = useState(initDl.date);
   const [dlHour, setDlHour] = useState(initDl.hour);
   const [dlMinute, setDlMinute] = useState(initDl.minute);
@@ -110,16 +112,21 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !dlDate) return;
+    if (!title.trim()) return;
+    if (!noDeadline && !dlDate) return;
 
-    const [y, m, d] = dlDate.split('-').map(Number);
-    const deadlineDate = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute));
+    let deadline: string | null = null;
+    if (!noDeadline) {
+      const [y, m, d] = dlDate.split('-').map(Number);
+      const deadlineDate = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute));
+      deadline = deadlineDate.toISOString();
+    }
 
     onSubmit({
       title: title.trim(),
       description: description.trim(),
       estimated_min: totalEstimatedMin || 15,
-      deadline: deadlineDate.toISOString(),
+      deadline,
       priority,
       completed,
       people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
@@ -182,24 +189,37 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
 
       {/* Deadline */}
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Deadline</label>
-        <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
-          <Input
-            type="date"
-            value={dlDate}
-            onChange={(e) => setDlDate(e.target.value)}
-          />
-          <Select
-            value={dlHour}
-            onChange={(e) => setDlHour(e.target.value)}
-            options={clockHourOptions}
-          />
-          <Select
-            value={dlMinute}
-            onChange={(e) => setDlMinute(e.target.value)}
-            options={clockMinuteOptions}
-          />
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Deadline</label>
+          <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={noDeadline}
+              onChange={(e) => setNoDeadline(e.target.checked)}
+              className="rounded"
+            />
+            No deadline
+          </label>
         </div>
+        {!noDeadline && (
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <Input
+              type="date"
+              value={dlDate}
+              onChange={(e) => setDlDate(e.target.value)}
+            />
+            <Select
+              value={dlHour}
+              onChange={(e) => setDlHour(e.target.value)}
+              options={clockHourOptions}
+            />
+            <Select
+              value={dlMinute}
+              onChange={(e) => setDlMinute(e.target.value)}
+              options={clockMinuteOptions}
+            />
+          </div>
+        )}
       </div>
 
       <Select
@@ -236,7 +256,7 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting || !title.trim() || !dlDate}>
+          <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
             {initialTask ? 'Update Task' : 'Create Task'}
           </Button>
         </div>

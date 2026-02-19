@@ -53,3 +53,29 @@ export function getHoursArray(startHour: number, endHour: number): number[] {
   }
   return hours;
 }
+
+export function startOfMonth(date: Date): Date {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Returns 42 dates (6 rows × 7 cols, Monday-start) covering the given month plus leading/trailing days. */
+export function getCalendarGrid(year: number, month: number): Date[] {
+  const first = new Date(year, month, 1);
+  // Day of week for the 1st (0=Sun, 1=Mon, ..., 6=Sat)
+  const dow = first.getDay();
+  // Monday-start offset: how many leading days from previous month
+  const leadingDays = dow === 0 ? 6 : dow - 1;
+  const gridStart = new Date(year, month, 1 - leadingDays);
+
+  const dates: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    dates.push(d);
+  }
+  return dates;
+}

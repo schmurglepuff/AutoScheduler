@@ -3,7 +3,7 @@ export interface Task {
   title: string;
   description: string;
   estimated_min: number;
-  deadline: string;
+  deadline: string | null;
   priority: 'Low' | 'Medium' | 'High';
   completed: boolean;
   created_at: string;

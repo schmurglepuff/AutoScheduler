@@ -33,7 +33,7 @@ export function AppShell() {
     if (slot?.task_id) {
       const dropDate = new Date(endTime);
       const existingTask = tasks.find((t) => t.id === slot.task_id);
-      if (existingTask) {
+      if (existingTask && existingTask.deadline) {
         // Preserve the existing deadline time-of-day, just change the date
         const oldDeadline = new Date(existingTask.deadline);
         const newDeadline = new Date(dropDate);
@@ -55,7 +55,7 @@ export function AppShell() {
     title: string;
     description: string;
     estimated_min: number;
-    deadline: string;
+    deadline: string | null;
     priority: Priority;
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
@@ -86,7 +86,7 @@ export function AppShell() {
     title: string;
     description: string;
     estimated_min: number;
-    deadline: string;
+    deadline: string | null;
     priority: Priority;
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];

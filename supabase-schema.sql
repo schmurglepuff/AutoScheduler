@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   title text NOT NULL,
   description text DEFAULT '',
   estimated_min integer NOT NULL,
-  deadline timestamptz NOT NULL,
+  deadline timestamptz,
   priority text NOT NULL CHECK (priority IN ('Low', 'Medium', 'High')),
   completed boolean DEFAULT false,
   created_at timestamptz DEFAULT now(),
