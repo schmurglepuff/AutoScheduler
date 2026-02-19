@@ -9,10 +9,11 @@ interface DayColumnProps {
   slots: ScheduleSlot[];
   onSlotClick?: (slot: ScheduleSlot) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onCreateTask?: (startTime: Date) => void;
   overCellId: string | null;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, overCellId }: DayColumnProps) {
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onCreateTask, overCellId }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -42,6 +43,21 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, overC
     cells.push({ id: `cell-${dateStr}-${hour}-30`, hour, min: 30 });
   }
 
+  // Determine which cells are occupied by a scheduled block
+  const occupiedCells = new Set<string>();
+  for (const slot of daySlots) {
+    const slotStart = new Date(slot.start_time);
+    const slotEnd = new Date(slot.end_time);
+    for (const cell of cells) {
+      const cellStart = new Date(date);
+      cellStart.setHours(cell.hour, cell.min, 0, 0);
+      const cellEnd = new Date(cellStart.getTime() + 30 * 60 * 1000);
+      if (cellStart < slotEnd && cellEnd > slotStart) {
+        occupiedCells.add(cell.id);
+      }
+    }
+  }
+
   return (
     <div className="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800 first:border-l-0">
       {/* Day header */}
@@ -63,13 +79,19 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, overC
       </div>
       {/* Time grid with droppable half-hour cells */}
       <div className="relative overflow-hidden">
-        {cells.map((cell) => (
-          <TimeSlot
-            key={cell.id}
-            droppableId={cell.id}
-            isOver={overCellId === cell.id}
-          />
-        ))}
+        {cells.map((cell) => {
+          const cellStart = new Date(date);
+          cellStart.setHours(cell.hour, cell.min, 0, 0);
+          const isOccupied = occupiedCells.has(cell.id);
+          return (
+            <TimeSlot
+              key={cell.id}
+              droppableId={cell.id}
+              isOver={overCellId === cell.id}
+              onCreateTask={!isOccupied && onCreateTask ? () => onCreateTask(cellStart) : undefined}
+            />
+          );
+        })}
         {daySlots.map((slot) => {
           const slotStart = new Date(slot.start_time);
           const slotEnd = new Date(slot.end_time);

@@ -12,6 +12,7 @@ interface PersonNoteEntry {
 
 interface TaskFormProps {
   initialTask?: Task;
+  defaultDeadline?: string;
   onSubmit: (data: {
     title: string;
     description: string;
@@ -82,7 +83,7 @@ function parseInitialEstimate(minutes?: number): { days: string; hours: string; 
   };
 }
 
-export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps) {
+export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
 
@@ -91,7 +92,7 @@ export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitti
   const [estHours, setEstHours] = useState(initEst.hours);
   const [estMins, setEstMins] = useState(initEst.mins);
 
-  const initDl = parseInitialDeadline(initialTask?.deadline);
+  const initDl = parseInitialDeadline(initialTask?.deadline || defaultDeadline);
   const [dlDate, setDlDate] = useState(initDl.date);
   const [dlHour, setDlHour] = useState(initDl.hour);
   const [dlMinute, setDlMinute] = useState(initDl.minute);

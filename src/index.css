@@ -6,6 +6,12 @@
   --color-accent: var(--accent-color, #3b82f6);
   --color-accent-light: color-mix(in srgb, var(--accent-color, #3b82f6) 20%, white);
   --color-accent-dark: color-mix(in srgb, var(--accent-color, #3b82f6) 80%, black);
+  --animate-shimmer: shimmer 3s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: -100% 50%; }
 }
 
 body {
