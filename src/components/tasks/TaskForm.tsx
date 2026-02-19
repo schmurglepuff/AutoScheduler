@@ -26,13 +26,76 @@ interface TaskFormProps {
   isSubmitting?: boolean;
 }
 
+// Generate options
+const dayOptions = Array.from({ length: 31 }, (_, i) => ({
+  value: String(i),
+  label: `${i}d`,
+}));
+
+const hourOptions = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i),
+  label: `${i}h`,
+}));
+
+const minuteOptions = [0, 15, 30, 45].map((m) => ({
+  value: String(m),
+  label: `${m}m`,
+}));
+
+const clockHourOptions = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i).padStart(2, '0'),
+  label: String(i).padStart(2, '0'),
+}));
+
+const clockMinuteOptions = [0, 15, 30, 45].map((m) => ({
+  value: String(m).padStart(2, '0'),
+  label: String(m).padStart(2, '0'),
+}));
+
+function parseInitialDeadline(deadline?: string): { date: string; hour: string; minute: string } {
+  if (!deadline) {
+    // Default: tomorrow at 17:00
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const y = tomorrow.getFullYear();
+    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const d = String(tomorrow.getDate()).padStart(2, '0');
+    return { date: `${y}-${m}-${d}`, hour: '17', minute: '00' };
+  }
+  const dt = new Date(deadline);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  const h = String(dt.getHours()).padStart(2, '0');
+  const min = String(Math.floor(dt.getMinutes() / 15) * 15).padStart(2, '0');
+  return { date: `${y}-${m}-${d}`, hour: h, minute: min };
+}
+
+function parseInitialEstimate(minutes?: number): { days: string; hours: string; mins: string } {
+  const total = minutes || 60;
+  const days = Math.floor(total / (24 * 60));
+  const remaining = total - days * 24 * 60;
+  return {
+    days: String(days),
+    hours: String(Math.floor(remaining / 60)),
+    mins: String(remaining % 60),
+  };
+}
+
 export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
-  const [estimatedMin, setEstimatedMin] = useState(String(initialTask?.estimated_min || 60));
-  const [deadline, setDeadline] = useState(
-    initialTask?.deadline ? new Date(initialTask.deadline).toISOString().slice(0, 16) : ''
-  );
+
+  const initEst = parseInitialEstimate(initialTask?.estimated_min);
+  const [estDays, setEstDays] = useState(initEst.days);
+  const [estHours, setEstHours] = useState(initEst.hours);
+  const [estMins, setEstMins] = useState(initEst.mins);
+
+  const initDl = parseInitialDeadline(initialTask?.deadline);
+  const [dlDate, setDlDate] = useState(initDl.date);
+  const [dlHour, setDlHour] = useState(initDl.hour);
+  const [dlMinute, setDlMinute] = useState(initDl.minute);
+
   const [priority, setPriority] = useState<Priority>(initialTask?.priority || 'Medium');
   const [completed, setCompleted] = useState(initialTask?.completed || false);
   const [notes, setNotes] = useState<PersonNoteEntry[]>(
@@ -42,14 +105,20 @@ export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitti
     })) || []
   );
 
+  const totalEstimatedMin = parseInt(estDays) * 24 * 60 + parseInt(estHours) * 60 + parseInt(estMins);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !deadline) return;
+    if (!title.trim() || !dlDate) return;
+
+    const [y, m, d] = dlDate.split('-').map(Number);
+    const deadlineDate = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute));
+
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      estimated_min: parseInt(estimatedMin) || 60,
-      deadline: new Date(deadline).toISOString(),
+      estimated_min: totalEstimatedMin || 15,
+      deadline: deadlineDate.toISOString(),
       priority,
       completed,
       people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
@@ -78,23 +147,60 @@ export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitti
             placeholder:text-gray-400 resize-none"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Input
-          label="Estimated Minutes"
-          type="number"
-          min={15}
-          step={15}
-          value={estimatedMin}
-          onChange={(e) => setEstimatedMin(e.target.value)}
-        />
-        <Input
-          label="Deadline"
-          type="datetime-local"
-          value={deadline}
-          onChange={(e) => setDeadline(e.target.value)}
-          required
-        />
+
+      {/* Estimated Time */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Estimated Time</label>
+        <div className="grid grid-cols-3 gap-2">
+          <Select
+            value={estDays}
+            onChange={(e) => setEstDays(e.target.value)}
+            options={dayOptions}
+          />
+          <Select
+            value={estHours}
+            onChange={(e) => setEstHours(e.target.value)}
+            options={hourOptions}
+          />
+          <Select
+            value={estMins}
+            onChange={(e) => setEstMins(e.target.value)}
+            options={minuteOptions}
+          />
+        </div>
+        {totalEstimatedMin > 0 && (
+          <span className="text-xs text-gray-400 mt-0.5">
+            {[
+              parseInt(estDays) > 0 ? `${estDays}d` : '',
+              parseInt(estHours) > 0 ? `${estHours}h` : '',
+              parseInt(estMins) > 0 ? `${estMins}m` : '',
+            ].filter(Boolean).join(' ')}
+          </span>
+        )}
       </div>
+
+      {/* Deadline */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Deadline</label>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+          <Input
+            type="date"
+            value={dlDate}
+            onChange={(e) => setDlDate(e.target.value)}
+          />
+          <Select
+            value={dlHour}
+            onChange={(e) => setDlHour(e.target.value)}
+            options={clockHourOptions}
+          />
+          <Select
+            value={dlMinute}
+            onChange={(e) => setDlMinute(e.target.value)}
+            options={clockMinuteOptions}
+          />
+        </div>
+      </div>
+
       <Select
         label="Priority"
         value={priority}
@@ -129,7 +235,7 @@ export function TaskForm({ initialTask, onSubmit, onCancel, onDelete, isSubmitti
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting || !title.trim() || !deadline}>
+          <Button type="submit" disabled={isSubmitting || !title.trim() || !dlDate}>
             {initialTask ? 'Update Task' : 'Create Task'}
           </Button>
         </div>

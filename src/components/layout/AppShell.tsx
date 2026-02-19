@@ -20,12 +20,16 @@ export function AppShell() {
 
   const { settings, updateSettings } = useSettings();
   const { tasks, updateTask, deleteTask } = useTasks();
-  const { slots, regenerate, moveSlot } = useSchedule(tasks, settings);
+  const { slots, regenerate, moveSlot, toggleLock } = useSchedule(tasks, settings);
 
   useTheme(settings);
 
   const handleMoveSlot = (id: string, startTime: string, endTime: string) => {
     moveSlot.mutate({ id, start_time: startTime, end_time: endTime });
+  };
+
+  const handleToggleLock = (slot: ScheduleSlot) => {
+    toggleLock.mutate({ id: slot.id, locked: !slot.locked });
   };
 
   const handleSlotClick = (slot: ScheduleSlot) => {
@@ -88,6 +92,7 @@ export function AppShell() {
                 settings={settings}
                 onSlotClick={handleSlotClick}
                 onMoveSlot={handleMoveSlot}
+                onToggleLock={handleToggleLock}
               />
             </div>
           )}

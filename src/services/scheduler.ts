@@ -77,17 +77,36 @@ function buildAvailableSlots(settings: Settings): TimeSlot[] {
 
 export function generateSchedule(
   tasks: Task[],
-  settings: Settings
+  settings: Settings,
+  lockedSlots: ScheduleSlot[] = []
 ): Omit<ScheduleSlot, 'id' | 'task'>[] {
+  // Tasks that already have locked slots need fewer minutes scheduled
+  const lockedMinByTask = new Map<string, number>();
+  for (const ls of lockedSlots) {
+    const dur = (new Date(ls.end_time).getTime() - new Date(ls.start_time).getTime()) / (1000 * 60);
+    lockedMinByTask.set(ls.task_id, (lockedMinByTask.get(ls.task_id) || 0) + dur);
+  }
+
   const incompleteTasks = tasks.filter((t) => !t.completed);
   const sorted = [...incompleteTasks].sort((a, b) => computeScore(b) - computeScore(a));
 
-  const availableSlots = buildAvailableSlots(settings);
+  let availableSlots = buildAvailableSlots(settings);
+
+  // Remove any 30-min slots that overlap with locked slots
+  availableSlots = availableSlots.filter((slot) =>
+    !lockedSlots.some((ls) => {
+      const lsStart = new Date(ls.start_time).getTime();
+      const lsEnd = new Date(ls.end_time).getTime();
+      return slot.start.getTime() < lsEnd && slot.end.getTime() > lsStart;
+    })
+  );
+
   const result: Omit<ScheduleSlot, 'id' | 'task'>[] = [];
   let slotIndex = 0;
 
   for (const task of sorted) {
-    let remainingMin = task.estimated_min;
+    let remainingMin = task.estimated_min - (lockedMinByTask.get(task.id) || 0);
+    if (remainingMin <= 0) continue;
 
     while (remainingMin > 0 && slotIndex < availableSlots.length) {
       const slot = availableSlots[slotIndex];

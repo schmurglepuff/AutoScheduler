@@ -24,6 +24,7 @@ export interface ScheduleSlot {
   task_id: string;
   start_time: string;
   end_time: string;
+  locked: boolean;
   task?: Task;
 }
 

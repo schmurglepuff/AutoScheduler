@@ -20,13 +20,24 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
   const regenerate = useMutation({
     mutationFn: async () => {
-      const newSlots = generateSchedule(tasks, settings);
+      // Fetch current locked slots
+      const { data: lockedSlots, error: fetchErr } = await supabase
+        .from('schedule_slots')
+        .select('*, task:tasks(*)')
+        .eq('locked', true);
+      if (fetchErr) throw fetchErr;
 
-      // Clear existing schedule
-      await supabase.from('schedule_slots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const locked = (lockedSlots || []) as ScheduleSlot[];
+
+      const newSlots = generateSchedule(tasks, settings, locked);
+
+      // Delete only unlocked slots
+      await supabase
+        .from('schedule_slots')
+        .delete()
+        .eq('locked', false);
 
       if (newSlots.length > 0) {
-        // Batch insert in chunks of 100
         for (let i = 0; i < newSlots.length; i += 100) {
           const batch = newSlots.slice(i, i + 100);
           const { error } = await supabase.from('schedule_slots').insert(batch);
@@ -43,7 +54,7 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     mutationFn: async ({ id, start_time, end_time }: { id: string; start_time: string; end_time: string }) => {
       const { error } = await supabase
         .from('schedule_slots')
-        .update({ start_time, end_time })
+        .update({ start_time, end_time, locked: false })
         .eq('id', id);
       if (error) throw error;
     },
@@ -51,7 +62,33 @@ export function useSchedule(tasks: Task[], settings: Settings) {
       await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
       const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
       queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
-        old?.map((s) => (s.id === id ? { ...s, start_time, end_time } : s))
+        old?.map((s) => (s.id === id ? { ...s, start_time, end_time, locked: false } : s))
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['schedule_slots'], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
+  const toggleLock = useMutation({
+    mutationFn: async ({ id, locked }: { id: string; locked: boolean }) => {
+      const { error } = await supabase
+        .from('schedule_slots')
+        .update({ locked })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onMutate: async ({ id, locked }) => {
+      await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
+      const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
+      queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
+        old?.map((s) => (s.id === id ? { ...s, locked } : s))
       );
       return { previous };
     },
@@ -70,5 +107,6 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     isLoading: slotsQuery.isLoading,
     regenerate,
     moveSlot,
+    toggleLock,
   };
 }
