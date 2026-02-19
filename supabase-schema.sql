@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   start_time timestamptz NOT NULL,
-  end_time timestamptz NOT NULL
+  end_time timestamptz NOT NULL,
+  locked boolean DEFAULT false
 );
 
 -- Settings (singleton row)

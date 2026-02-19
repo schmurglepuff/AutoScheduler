@@ -8,15 +8,29 @@ interface DayColumnProps {
   hours: number[];
   slots: ScheduleSlot[];
   onSlotClick?: (slot: ScheduleSlot) => void;
+  onToggleLock?: (slot: ScheduleSlot) => void;
   overCellId: string | null;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, overCellId }: DayColumnProps) {
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, overCellId }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
-  const daySlots = slots.filter((s) => isSameDay(new Date(s.start_time), date));
   const startHour = hours[0] || 0;
+  const endHour = (hours[hours.length - 1] || 0) + 1;
   const totalHours = hours.length;
   const dateStr = formatDateISO(date);
+
+  // Day boundaries for the visible grid
+  const dayStart = new Date(date);
+  dayStart.setHours(startHour, 0, 0, 0);
+  const dayEnd = new Date(date);
+  dayEnd.setHours(endHour, 0, 0, 0);
+
+  // Find all slots that overlap with this day's visible hours
+  const daySlots = slots.filter((s) => {
+    const slotStart = new Date(s.start_time);
+    const slotEnd = new Date(s.end_time);
+    return slotStart < dayEnd && slotEnd > dayStart;
+  });
 
   const dayName = date.toLocaleDateString([], { weekday: 'short' });
   const dayNum = date.getDate();
@@ -48,7 +62,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, overCellId }: DayCo
         </div>
       </div>
       {/* Time grid with droppable half-hour cells */}
-      <div className="relative">
+      <div className="relative overflow-hidden">
         {cells.map((cell) => (
           <TimeSlot
             key={cell.id}
@@ -57,12 +71,19 @@ export function DayColumn({ date, hours, slots, onSlotClick, overCellId }: DayCo
           />
         ))}
         {daySlots.map((slot) => {
-          const start = new Date(slot.start_time);
-          const end = new Date(slot.end_time);
-          const startOffset = start.getHours() + start.getMinutes() / 60 - startHour;
-          const duration = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+          const slotStart = new Date(slot.start_time);
+          const slotEnd = new Date(slot.end_time);
+
+          // Clamp to visible day boundaries
+          const visibleStart = slotStart < dayStart ? dayStart : slotStart;
+          const visibleEnd = slotEnd > dayEnd ? dayEnd : slotEnd;
+
+          const startOffset = visibleStart.getHours() + visibleStart.getMinutes() / 60 - startHour;
+          const duration = (visibleEnd.getTime() - visibleStart.getTime()) / (1000 * 60 * 60);
           const topPercent = (startOffset / totalHours) * 100;
           const heightPercent = (duration / totalHours) * 100;
+
+          if (heightPercent <= 0) return null;
 
           return (
             <ScheduledBlock
@@ -71,6 +92,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, overCellId }: DayCo
               topPercent={topPercent}
               heightPercent={heightPercent}
               onClick={onSlotClick}
+              onToggleLock={onToggleLock}
             />
           );
         })}

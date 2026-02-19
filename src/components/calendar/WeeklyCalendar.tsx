@@ -21,6 +21,7 @@ interface WeeklyCalendarProps {
   settings: Settings;
   onSlotClick?: (slot: ScheduleSlot) => void;
   onMoveSlot?: (id: string, startTime: string, endTime: string) => void;
+  onToggleLock?: (slot: ScheduleSlot) => void;
 }
 
 /** Parse a droppable cell ID like "cell-2026-02-19-9-30" into a local Date */
@@ -39,7 +40,7 @@ function parseCellId(cellId: string): Date | null {
   );
 }
 
-export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot }: WeeklyCalendarProps) {
+export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock }: WeeklyCalendarProps) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot }: Wee
               hours={hours}
               slots={slots}
               onSlotClick={onSlotClick}
+              onToggleLock={onToggleLock}
               overCellId={overCellId}
             />
           ))}
