@@ -1,18 +1,18 @@
+import { useDroppable } from '@dnd-kit/core';
+
 interface TimeSlotProps {
-  hour: number;
-  isEven: boolean;
+  droppableId: string;
+  isOver: boolean;
 }
 
-export function TimeSlot({ hour, isEven }: TimeSlotProps) {
+export function TimeSlot({ droppableId, isOver }: TimeSlotProps) {
+  const { setNodeRef } = useDroppable({ id: droppableId });
+
   return (
     <div
-      className={`border-t border-gray-200 dark:border-gray-700 h-16 ${
-        isEven ? 'bg-gray-50/50 dark:bg-gray-800/30' : ''
-      }`}
-    >
-      <span className="text-xs text-gray-400 dark:text-gray-500 -mt-2 block pl-1">
-        {hour.toString().padStart(2, '0')}:00
-      </span>
-    </div>
+      ref={setNodeRef}
+      className={`h-8 border-t border-gray-100 dark:border-gray-800 transition-colors
+        ${isOver ? 'bg-accent/10' : ''}`}
+    />
   );
 }

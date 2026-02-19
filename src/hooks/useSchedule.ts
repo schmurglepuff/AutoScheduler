@@ -39,9 +39,36 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     },
   });
 
+  const moveSlot = useMutation({
+    mutationFn: async ({ id, start_time, end_time }: { id: string; start_time: string; end_time: string }) => {
+      const { error } = await supabase
+        .from('schedule_slots')
+        .update({ start_time, end_time })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onMutate: async ({ id, start_time, end_time }) => {
+      await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
+      const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
+      queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
+        old?.map((s) => (s.id === id ? { ...s, start_time, end_time } : s))
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['schedule_slots'], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
   return {
     slots: slotsQuery.data || [],
     isLoading: slotsQuery.isLoading,
     regenerate,
+    moveSlot,
   };
 }
