@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -50,6 +50,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
   const [monthOffset, setMonthOffset] = useState(0);
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
+  const savedWeekOffsetRef = useRef(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -119,9 +120,34 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
   };
 
   const handleToggleView = () => {
-    setViewMode((v) => (v === 'week' ? 'month' : 'week'));
-    setWeekOffset(0);
-    setMonthOffset(0);
+    if (viewMode === 'week') {
+      // Save current week before leaving, then switch to the month containing it
+      savedWeekOffsetRef.current = weekOffset;
+      const base = new Date();
+      const diffMonths =
+        (weekStart.getFullYear() - base.getFullYear()) * 12 +
+        weekStart.getMonth() - base.getMonth();
+      setMonthOffset(diffMonths);
+      setViewMode('month');
+    } else {
+      // Restore saved week if it's still in the currently viewed month,
+      // otherwise fall back to the week of the 7th
+      const baseWeekStart = startOfWeek(new Date());
+      const savedWeekStart = addDays(baseWeekStart, savedWeekOffsetRef.current * 7);
+      if (
+        savedWeekStart.getMonth() === monthDate.getMonth() &&
+        savedWeekStart.getFullYear() === monthDate.getFullYear()
+      ) {
+        setWeekOffset(savedWeekOffsetRef.current);
+      } else {
+        const targetWeekStart = startOfWeek(addDays(monthDate, 6));
+        const diffWeeks = Math.round(
+          (targetWeekStart.getTime() - baseWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)
+        );
+        setWeekOffset(diffWeeks);
+      }
+      setViewMode('week');
+    }
   };
 
   const handlePrev = () => {
@@ -149,10 +175,25 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
     setViewMode('week');
   };
 
-  // Show the month/year relevant to current view
   const displayDate = viewMode === 'month' ? monthDate : weekStart;
-  const displayMonth = displayDate.toLocaleDateString([], { month: 'long' });
-  const displayYear = displayDate.getFullYear().toString();
+  const activeMonth = displayDate.getMonth();
+  const activeYear = displayDate.getFullYear();
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const handleMonthTabClick = (monthIdx: number) => {
+    if (viewMode === 'month') {
+      const base = new Date();
+      const diffMonths = (activeYear - base.getFullYear()) * 12 + monthIdx - base.getMonth();
+      setMonthOffset(diffMonths);
+    } else {
+      const target = new Date(activeYear, monthIdx, 1);
+      const targetWeekStart = startOfWeek(target);
+      const baseWeekStart = startOfWeek(new Date());
+      const diffWeeks = Math.round((targetWeekStart.getTime() - baseWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      setWeekOffset(diffWeeks);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -164,16 +205,39 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
         viewMode={viewMode}
         onToggleView={handleToggleView}
       />
-      {/* Calendar card with month/year tabs rising from behind */}
-      <div className="relative mt-4">
-        {/* Month + Year tabs – peeking up from behind the card */}
-        <div className="absolute -top-[22px] left-4 z-0 flex">
-          <div className="px-4 py-1 text-xs font-semibold rounded-t-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-b-0 border-gray-200/60 dark:border-gray-800 shadow-sm">
-            {displayMonth}
+      {/* Calendar card with tabs */}
+      <div className="relative mt-6">
+        {/* Year tab – vertical, peeks from the left */}
+        <div className="absolute left-0 top-0 bottom-0 -translate-x-full z-0 w-6 flex">
+          <div className="flex-1 flex items-center justify-center bg-white dark:bg-gray-900 border border-r-0 border-gray-200/60 dark:border-gray-800 rounded-l-xl select-none">
+            <span
+              className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 tracking-widest"
+              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            >
+              {activeYear}
+            </span>
           </div>
-          <div className="px-3 py-1 text-xs font-medium rounded-t-lg bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-b-0 border-gray-200/60 dark:border-gray-700 -ml-px">
-            {displayYear}
-          </div>
+        </div>
+
+        {/* Month tabs – full row across the top */}
+        <div className="absolute -top-[22px] left-0 right-0 z-0 flex">
+          {months.map((month, idx) => {
+            const isActive = idx === activeMonth;
+            return (
+              <button
+                key={month}
+                onClick={() => handleMonthTabClick(idx)}
+                className={`flex-1 py-1 text-[10px] font-medium rounded-t-sm border border-b-0 transition-colors
+                  ${idx > 0 ? '-ml-px' : ''}
+                  ${isActive
+                    ? 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 border-gray-200/60 dark:border-gray-800'
+                    : 'bg-gray-100/80 dark:bg-gray-800/60 text-gray-400 dark:text-gray-500 border-gray-200/40 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300'
+                  }`}
+              >
+                {month}
+              </button>
+            );
+          })}
         </div>
 
         {viewMode === 'month' ? (

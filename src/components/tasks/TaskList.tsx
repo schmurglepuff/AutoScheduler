@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -14,7 +14,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core';
 import type { Task, Priority } from '../../types';
 import { TaskCard } from './TaskCard';
-import { TaskForm } from './TaskForm';
+import { TaskForm, type TaskFormHandle } from './TaskForm';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { useTasks } from '../../hooks/useTasks';
@@ -33,6 +33,23 @@ export function TaskList() {
   const { tasks, isLoading, createTask, updateTask, deleteTask } = useTasks();
   const [showForm, setShowForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const editFormRef = useRef<TaskFormHandle>(null);
+  const [overdueOpen, setOverdueOpen] = useState(true);
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const now = new Date();
+  const q = query.toLowerCase().trim();
+  const matches = (t: Task) =>
+    !q || t.title.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q);
+
+  const overdueTasks = tasks.filter(
+    (t) => !t.completed && t.deadline !== null && new Date(t.deadline) < now && matches(t)
+  );
+  const completedTasks = tasks.filter((t) => t.completed && matches(t));
+  const activeTasks = tasks.filter(
+    (t) => !t.completed && (t.deadline === null || new Date(t.deadline) >= now) && matches(t)
+  );
 
   const handleCreate = (data: TaskFormData) => {
     createTask.mutate(data, {
@@ -42,10 +59,12 @@ export function TaskList() {
 
   const handleUpdate = (data: TaskFormData) => {
     if (!editingTask) return;
-    updateTask.mutate(
-      { id: editingTask.id, ...data },
-      { onSuccess: () => setEditingTask(null) }
-    );
+    updateTask.mutate({ id: editingTask.id, ...data });
+  };
+
+  const handleEditModalClose = () => {
+    editFormRef.current?.submit();
+    setEditingTask(null);
   };
 
   const handleDelete = (id: string) => {
@@ -68,23 +87,100 @@ export function TaskList() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col items-center gap-3">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Tasks</h2>
-        <Button onClick={() => setShowForm(true)}>+ New Task</Button>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-xl font-semibold text-center text-gray-900 dark:text-gray-100">Tasks</h2>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (e.target.value.trim()) setDoneOpen(true);
+              }}
+              className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent/50"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <Button onClick={() => setShowForm(true)}>+ New Task</Button>
+        </div>
       </div>
+
+      {overdueTasks.length > 0 && (
+        <div className="rounded-lg border border-red-300 dark:border-red-700 overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-2 bg-red-500 text-white font-semibold text-sm"
+            onClick={() => setOverdueOpen((o) => !o)}
+          >
+            <span>Overdue ({overdueTasks.length})</span>
+            <span className="text-base">{overdueOpen ? '▾' : '▸'}</span>
+          </button>
+          {overdueOpen && (
+            <div className="flex flex-col gap-2 p-3 bg-red-50 dark:bg-red-950/20">
+              {overdueTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onClick={setEditingTask}
+                  onToggleComplete={handleToggleComplete}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {tasks.length === 0 ? (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <p className="text-lg">No tasks yet</p>
           <p className="text-sm mt-1">Create your first task to get started</p>
         </div>
-      ) : (
+      ) : q && activeTasks.length === 0 && overdueTasks.length === 0 && completedTasks.length === 0 ? (
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          <p className="text-lg">No tasks match "{query}"</p>
+        </div>
+      ) : activeTasks.length > 0 ? (
         <PriorityColumns
-          tasks={tasks}
+          tasks={activeTasks}
           onClickTask={setEditingTask}
           onToggleComplete={handleToggleComplete}
           onChangePriority={(id, priority) => updateTask.mutate({ id, priority })}
         />
+      ) : null}
+
+      {completedTasks.length > 0 && (
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-semibold text-sm"
+            onClick={() => setDoneOpen((o) => !o)}
+          >
+            <span>Done ({completedTasks.length})</span>
+            <span className="text-base">{doneOpen ? '▾' : '▸'}</span>
+          </button>
+          {doneOpen && (
+            <div className="flex flex-col gap-2 p-3">
+              {completedTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onClick={setEditingTask}
+                  onToggleComplete={handleToggleComplete}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="New Task">
@@ -97,11 +193,12 @@ export function TaskList() {
 
       <Modal
         isOpen={!!editingTask}
-        onClose={() => setEditingTask(null)}
+        onClose={handleEditModalClose}
         title="Edit Task"
       >
         {editingTask && (
           <TaskForm
+            ref={editFormRef}
             initialTask={editingTask}
             onSubmit={handleUpdate}
             onCancel={() => setEditingTask(null)}

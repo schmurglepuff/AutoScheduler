@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, forwardRef, useImperativeHandle } from 'react';
 import type { Task, Priority } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -83,7 +83,14 @@ function parseInitialEstimate(minutes?: number): { days: string; hours: string; 
   };
 }
 
-export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps) {
+export interface TaskFormHandle {
+  submit: () => void;
+}
+
+export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
+  { initialTask, defaultDeadline, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps,
+  ref
+) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
 
@@ -109,6 +116,27 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
   );
 
   const totalEstimatedMin = parseInt(estDays) * 24 * 60 + parseInt(estHours) * 60 + parseInt(estMins);
+
+  useImperativeHandle(ref, () => ({
+    submit() {
+      if (!title.trim() || (!noDeadline && !dlDate)) return;
+      let deadline: string | null = null;
+      if (!noDeadline) {
+        const [y, m, d] = dlDate.split('-').map(Number);
+        deadline = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute)).toISOString();
+      }
+      const totalMin = parseInt(estDays) * 24 * 60 + parseInt(estHours) * 60 + parseInt(estMins);
+      onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        estimated_min: totalMin || 15,
+        deadline,
+        priority,
+        completed,
+        people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
+      });
+    },
+  }), [title, description, noDeadline, dlDate, dlHour, dlMinute, estDays, estHours, estMins, priority, completed, notes, onSubmit]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -256,11 +284,13 @@ export function TaskForm({ initialTask, defaultDeadline, onSubmit, onCancel, onD
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
-            {initialTask ? 'Update Task' : 'Create Task'}
-          </Button>
+          {!initialTask && (
+            <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
+              Create Task
+            </Button>
+          )}
         </div>
       </div>
     </form>
   );
-}
+});

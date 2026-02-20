@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { Task, ScheduleSlot, Priority } from '../../types';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { TaskList } from '../tasks/TaskList';
 import { WeeklyCalendar } from '../calendar/WeeklyCalendar';
 import { SettingsPanel } from '../settings/SettingsPanel';
-import { TaskForm } from '../tasks/TaskForm';
+import { TaskForm, type TaskFormHandle } from '../tasks/TaskForm';
 import { Modal } from '../ui/Modal';
 import { useSettings } from '../../hooks/useSettings';
 import { useTasks } from '../../hooks/useTasks';
@@ -18,6 +18,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [creatingAtTime, setCreatingAtTime] = useState<string | null>(null);
+  const editFormRef = useRef<TaskFormHandle>(null);
 
   const { settings, updateSettings } = useSettings();
   const { tasks, createTask, updateTask, deleteTask } = useTasks();
@@ -96,17 +97,20 @@ export function AppShell() {
       { id: editingTask.id, ...data },
       {
         onSuccess: () => {
-          // Resize the schedule slots if estimated time changed
           if (data.estimated_min !== editingTask.estimated_min) {
             resizeTaskSlots.mutate({
               task_id: editingTask.id,
               estimated_min: data.estimated_min,
             });
           }
-          setEditingTask(null);
         },
       }
     );
+  };
+
+  const handleEditModalClose = () => {
+    editFormRef.current?.submit();
+    setEditingTask(null);
   };
 
   const handleDeleteTask = () => {
@@ -176,11 +180,12 @@ export function AppShell() {
       {/* Task edit modal from calendar slot click */}
       <Modal
         isOpen={!!editingTask}
-        onClose={() => setEditingTask(null)}
+        onClose={handleEditModalClose}
         title="Edit Task"
       >
         {editingTask && (
           <TaskForm
+            ref={editFormRef}
             initialTask={editingTask}
             onSubmit={handleUpdateTask}
             onCancel={() => setEditingTask(null)}

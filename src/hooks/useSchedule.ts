@@ -31,11 +31,12 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
       const newSlots = generateSchedule(tasks, settings, locked);
 
-      // Delete only unlocked slots
+      // Delete only unlocked future slots (preserve past slots)
       await supabase
         .from('schedule_slots')
         .delete()
-        .eq('locked', false);
+        .eq('locked', false)
+        .gte('start_time', new Date().toISOString());
 
       if (newSlots.length > 0) {
         for (let i = 0; i < newSlots.length; i += 100) {
