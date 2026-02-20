@@ -101,7 +101,17 @@ export function generateSchedule(
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
 
-  const sorted = [...withDeadline, ...withoutDeadline];
+  // Within each split group, sort by split_index so parts are scheduled in order
+  const sortWithinGroups = (arr: Task[]) => {
+    return arr.sort((a, b) => {
+      if (a.split_group_id && a.split_group_id === b.split_group_id) {
+        return (a.split_index ?? 0) - (b.split_index ?? 0);
+      }
+      return 0;
+    });
+  };
+
+  const sorted = [...sortWithinGroups(withDeadline), ...sortWithinGroups(withoutDeadline)];
 
   let availableSlots = buildAvailableSlots(settings);
 
@@ -155,6 +165,14 @@ export function generateSchedule(
 
   const result: Omit<ScheduleSlot, 'id' | 'task'>[] = [];
 
+  // Track which days have been used by each split group so parts land on separate days
+  // and are scheduled in ascending split_index order.
+  interface GroupState {
+    usedDays: Set<string>;
+    lastDayKey: string | null;
+  }
+  const groupState = new Map<string, GroupState>();
+
   for (const task of sorted) {
     let remainingMin = task.estimated_min - (lockedMinByTask.get(task.id) || 0);
     if (remainingMin <= 0) continue;
@@ -166,24 +184,78 @@ export function generateSchedule(
       ? new Date(new Date(task.deadline).getTime() - PREFERRED_LEAD_DAYS * 24 * 60 * 60 * 1000).getTime()
       : -Infinity;
 
-    while (remainingMin > 0) {
-      // First pass: pick the least-loaded day within the preferred window (last week before deadline)
-      // Second pass (fallback): pick the least-loaded day anywhere before the deadline
-      let best: DayBucket | null = null;
-      for (const b of buckets) {
-        if (b.nextIdx >= b.slots.length) continue;             // no free slots left
-        if (b.date.getTime() >= deadlineTime) continue;        // past deadline
-        if (b.date.getTime() >= preferredStart) {
-          // Within preferred window — pick least-loaded among these
-          if (!best || best.date.getTime() < preferredStart || b.allocatedMin < best.allocatedMin) {
-            best = b;
-          }
-        } else if (!best || best.date.getTime() < preferredStart) {
-          // Outside preferred window — only consider if nothing in the window yet
-          if (!best || b.allocatedMin < best.allocatedMin) best = b;
-        }
+    // Initialise group state for split tasks
+    let gs: GroupState | null = null;
+    if (task.split_group_id) {
+      if (!groupState.has(task.split_group_id)) {
+        groupState.set(task.split_group_id, { usedDays: new Set(), lastDayKey: null });
       }
-      if (!best) break; // no available day
+      gs = groupState.get(task.split_group_id)!;
+    }
+
+    while (remainingMin > 0) {
+      // Pick the best available day with up to three relaxation passes:
+      //   Pass 1 — strict:      before deadline, one-per-day group constraint
+      //   Pass 2 — relax group: before deadline, allow same day for split group
+      //   Pass 3 — fallback:    allow past-deadline (task still gets placed)
+      const pickBest = (allowSameDay: boolean, allowPastDeadline: boolean): DayBucket | null => {
+        let best: DayBucket | null = null;
+
+        // Count contiguous free minutes in a bucket starting from its nextIdx pointer.
+        const contiguousMin = (b: DayBucket): number => {
+          let total = 0;
+          for (let i = b.nextIdx; i < b.slots.length; i++) {
+            if (i > b.nextIdx && b.slots[i].start.getTime() !== b.slots[i - 1].end.getTime()) break;
+            total += SLOT_DURATION_MIN;
+          }
+          return total;
+        };
+
+        // Returns true if candidate should be preferred over current.
+        const beats = (candidate: DayBucket, current: DayBucket): boolean => {
+          // Regular tasks WITH a deadline: prefer the least-loaded day so they spread
+          // across the deadline window rather than front-loading onto day one.
+          if (task.deadline !== null && !gs) {
+            return candidate.allocatedMin < current.allocatedMin;
+          }
+          // Split group parts: strongly prefer a day that has enough contiguous room
+          // to fit the entire remaining block, so a part is never truncated just
+          // because the picked day was running out of time at the end of the day.
+          if (gs) {
+            const cf = contiguousMin(candidate) >= remainingMin;
+            const bf = contiguousMin(current) >= remainingMin;
+            if (cf !== bf) return cf; // fitting day beats non-fitting day
+          }
+          // No-deadline tasks (split or not) and split parts that tie on capacity:
+          // fill forward from the earliest available day.
+          return candidate.date.getTime() < current.date.getTime();
+        };
+
+        for (const b of buckets) {
+          if (b.nextIdx >= b.slots.length) continue;
+          if (!allowPastDeadline && b.date.getTime() >= deadlineTime) continue;
+          if (gs) {
+            if (!allowSameDay && gs.usedDays.has(b.key)) continue;
+            if (gs.lastDayKey && b.key <= gs.lastDayKey) continue;
+          }
+
+          if (b.date.getTime() >= preferredStart) {
+            if (!best || best.date.getTime() < preferredStart || beats(b, best)) {
+              best = b;
+            }
+          } else if (!best || best.date.getTime() < preferredStart) {
+            if (!best || beats(b, best)) best = b;
+          }
+        }
+        return best;
+      };
+
+      const best =
+        pickBest(false, false) ??   // strict
+        pickBest(true,  false) ??   // relax same-day for split group
+        pickBest(true,  true);      // allow past deadline
+
+      if (!best) break;
 
       // Allocate contiguous slots on the chosen day
       const startIdx = best.nextIdx;
@@ -216,6 +288,13 @@ export function generateSchedule(
       remainingMin -= usedMin;
       best.allocatedMin += usedMin;
       best.nextIdx += usedSlots;
+
+      // Mark this day as used for the split group (one part per day, ascending order)
+      if (gs) {
+        gs.usedDays.add(best.key);
+        gs.lastDayKey = best.key;
+        break; // only schedule one slot per day for each split part
+      }
     }
   }
 

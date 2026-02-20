@@ -9,11 +9,12 @@ interface DayColumnProps {
   slots: ScheduleSlot[];
   onSlotClick?: (slot: ScheduleSlot) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleComplete?: (slot: ScheduleSlot) => void;
   onCreateTask?: (startTime: Date) => void;
   overCellId: string | null;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onCreateTask, overCellId }: DayColumnProps) {
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -115,6 +116,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onCre
               heightPercent={heightPercent}
               onClick={onSlotClick}
               onToggleLock={onToggleLock}
+              onToggleComplete={onToggleComplete}
             />
           );
         })}

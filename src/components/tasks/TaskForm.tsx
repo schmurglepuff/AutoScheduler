@@ -13,6 +13,8 @@ interface PersonNoteEntry {
 interface TaskFormProps {
   initialTask?: Task;
   defaultDeadline?: string;
+  /** Minutes per workday (from settings). 1d in the form = this many minutes. Default 480. */
+  workdayMin?: number;
   onSubmit: (data: {
     title: string;
     description: string;
@@ -72,10 +74,10 @@ function parseInitialDeadline(deadline?: string): { date: string; hour: string; 
   return { date: `${y}-${m}-${d}`, hour: h, minute: min };
 }
 
-function parseInitialEstimate(minutes?: number): { days: string; hours: string; mins: string } {
+function parseInitialEstimate(minutes: number | undefined, workdayMin: number): { days: string; hours: string; mins: string } {
   const total = minutes || 60;
-  const days = Math.floor(total / (24 * 60));
-  const remaining = total - days * 24 * 60;
+  const days = Math.floor(total / workdayMin);
+  const remaining = total - days * workdayMin;
   return {
     days: String(days),
     hours: String(Math.floor(remaining / 60)),
@@ -88,18 +90,18 @@ export interface TaskFormHandle {
 }
 
 export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
-  { initialTask, defaultDeadline, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps,
+  { initialTask, defaultDeadline, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps,
   ref
 ) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
 
-  const initEst = parseInitialEstimate(initialTask?.estimated_min);
+  const initEst = parseInitialEstimate(initialTask?.estimated_min, workdayMin);
   const [estDays, setEstDays] = useState(initEst.days);
   const [estHours, setEstHours] = useState(initEst.hours);
   const [estMins, setEstMins] = useState(initEst.mins);
 
-  const hasNoDeadline = initialTask ? initialTask.deadline === null : false;
+  const hasNoDeadline = initialTask ? initialTask.deadline === null : true;
   const initDl = parseInitialDeadline(initialTask?.deadline || defaultDeadline || undefined);
   const [noDeadline, setNoDeadline] = useState(hasNoDeadline);
   const [dlDate, setDlDate] = useState(initDl.date);
@@ -115,7 +117,7 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
     })) || []
   );
 
-  const totalEstimatedMin = parseInt(estDays) * 24 * 60 + parseInt(estHours) * 60 + parseInt(estMins);
+  const totalEstimatedMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
 
   useImperativeHandle(ref, () => ({
     submit() {
@@ -125,7 +127,7 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
         const [y, m, d] = dlDate.split('-').map(Number);
         deadline = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute)).toISOString();
       }
-      const totalMin = parseInt(estDays) * 24 * 60 + parseInt(estHours) * 60 + parseInt(estMins);
+      const totalMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
       onSubmit({
         title: title.trim(),
         description: description.trim(),

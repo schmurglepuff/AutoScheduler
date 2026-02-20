@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority text NOT NULL CHECK (priority IN ('Low', 'Medium', 'High')),
   completed boolean DEFAULT false,
   created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
+  updated_at timestamptz DEFAULT now(),
+  split_group_id uuid NULL,
+  split_index integer NULL
 );
 
 -- People notes (linked to tasks)
@@ -40,7 +42,8 @@ CREATE TABLE IF NOT EXISTS settings (
   include_saturday boolean DEFAULT false,
   include_sunday boolean DEFAULT false,
   theme text DEFAULT 'light',
-  accent_color text DEFAULT '#3b82f6'
+  accent_color text DEFAULT '#3b82f6',
+  auto_split_tasks boolean DEFAULT false
 );
 
 -- Seed the singleton settings row
@@ -57,6 +60,11 @@ CREATE POLICY "Allow all on tasks" ON tasks FOR ALL USING (true) WITH CHECK (tru
 CREATE POLICY "Allow all on people_notes" ON people_notes FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on schedule_slots" ON schedule_slots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on settings" ON settings FOR ALL USING (true) WITH CHECK (true);
+
+-- Migration: add auto-split columns if upgrading from an earlier schema
+-- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_group_id uuid NULL;
+-- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_index integer NULL;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_split_tasks boolean NOT NULL DEFAULT false;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_people_notes_task_id ON people_notes(task_id);

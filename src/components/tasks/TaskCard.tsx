@@ -7,9 +7,12 @@ interface TaskCardProps {
   task: Task;
   onClick: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
+  selected?: boolean;
+  onDragSelectStart?: (id: string) => void;
+  onDragSelectEnter?: (id: string) => void;
 }
 
-export function TaskCard({ task, onClick, onToggleComplete }: TaskCardProps) {
+export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task },
@@ -27,16 +30,30 @@ export function TaskCard({ task, onClick, onToggleComplete }: TaskCardProps) {
     <div
       ref={setNodeRef}
       style={style}
+      data-task-card
       {...attributes}
       {...listeners}
       onClick={() => onClick(task)}
-      className={`border rounded-lg p-4 transition-colors cursor-grab active:cursor-grabbing hover:border-accent/50 touch-none ${
-        task.completed
-          ? 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60'
-          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+      onPointerEnter={() => onDragSelectEnter?.(task.id)}
+      className={`group border rounded-lg p-4 transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
+        selected
+          ? 'ring-2 ring-accent border-accent bg-accent/5 dark:bg-accent/10 hover:border-accent'
+          : task.completed
+          ? 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 opacity-60 hover:border-accent/50'
+          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-accent/50'
       }`}
     >
       <div className="flex items-start gap-3">
+        {/* Selection indicator — stopPropagation prevents dnd-kit from handling this area */}
+        <div
+          className={`mt-0.5 w-4 h-4 flex-shrink-0 rounded-sm border-2 cursor-pointer transition-all ${
+            selected
+              ? 'bg-accent border-accent opacity-100'
+              : 'border-gray-300 dark:border-gray-600 opacity-0 group-hover:opacity-100 hover:border-accent'
+          }`}
+          onPointerDown={(e) => { e.stopPropagation(); onDragSelectStart?.(task.id); }}
+          onClick={(e) => e.stopPropagation()}
+        />
         <input
           type="checkbox"
           checked={task.completed}

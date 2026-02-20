@@ -4,14 +4,16 @@ interface WeekNavigatorProps {
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
+  leading?: ReactNode;
   trailing?: ReactNode;
   viewMode?: 'week' | 'month';
   onToggleView?: () => void;
 }
 
-export function WeekNavigator({ onPrev, onNext, onToday, trailing, viewMode = 'week', onToggleView }: WeekNavigatorProps) {
+export function WeekNavigator({ onPrev, onNext, onToday, leading, trailing, viewMode = 'week', onToggleView }: WeekNavigatorProps) {
   return (
     <div className="flex items-center">
+      <div className="flex-none">{leading}</div>
       <div className="flex items-center gap-3 flex-1 justify-center">
         <button
           onClick={onPrev}
@@ -59,8 +61,8 @@ export function WeekNavigator({ onPrev, onNext, onToday, trailing, viewMode = 'w
             </button>
           </div>
         )}
-        {trailing && <div className="ml-3">{trailing}</div>}
       </div>
+      <div className="flex-none">{trailing}</div>
     </div>
   );
 }

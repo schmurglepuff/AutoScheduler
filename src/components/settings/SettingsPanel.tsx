@@ -62,6 +62,24 @@ export function SettingsPanel({ settings, onSave, isSaving }: SettingsPanelProps
         </label>
       </div>
 
+      <div className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Task Creation</h3>
+        <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={local.auto_split_tasks}
+            onChange={(e) => setLocal({ ...local, auto_split_tasks: e.target.checked })}
+            className="rounded mt-0.5"
+          />
+          <span>
+            Auto-split large tasks
+            <span className="block text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              Tasks estimated at 1 day or more are automatically split into workday-sized parts when created.
+            </span>
+          </span>
+        </label>
+      </div>
+
       <Select
         label="Theme"
         value={local.theme}
