@@ -26,10 +26,11 @@ interface ScheduledBlockProps {
   heightPercent: number;
   onClick?: (slot: ScheduleSlot) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleComplete?: (slot: ScheduleSlot) => void;
   isDragOverlay?: boolean;
 }
 
-export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onToggleLock, isDragOverlay }: ScheduledBlockProps) {
+export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onToggleLock, onToggleComplete, isDragOverlay }: ScheduledBlockProps) {
   const isLocked = !!slot.locked;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `slot-${slot.id}`,
@@ -41,6 +42,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
   const pStyle = priorityStyle[priority] || priorityStyle.Medium;
   const start = new Date(slot.start_time);
   const end = new Date(slot.end_time);
+  const isOverDeadline = !!slot.task?.deadline && end > new Date(slot.task.deadline);
 
   const dragProps = isLocked || isDragOverlay ? {} : { ...attributes, ...listeners };
 
@@ -52,6 +54,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} ${pStyle.border} hover:brightness-95 dark:hover:brightness-110 transition-all
         ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500 bg-stripes' : ''}
+        ${isOverDeadline && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
         ${isDragging ? 'opacity-30' : ''}
         ${isDragOverlay ? 'shadow-lg rotate-1 opacity-90' : ''}`}
       style={isDragOverlay ? {} : {
@@ -62,8 +65,23 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         if ((e.target as Element).closest('button')) return;
         if (!isDragging) onClick?.(slot);
       }}
-      title={`${slot.task?.title || 'Task'}\n${formatTime(start)} – ${formatTime(end)}`}
+      title={`${slot.task?.title || 'Task'}\n${formatTime(start)} – ${formatTime(end)}${isOverDeadline ? `\n⚠ Ends past deadline (${formatTime(new Date(slot.task!.deadline!))})` : ''}`}
     >
+      {/* Red stripe overlay for slots placed past their deadline */}
+      {isOverDeadline && !isDragOverlay && (
+        <div
+          className="absolute inset-0 pointer-events-none flex items-center justify-center rounded-md overflow-hidden"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(239,68,68,0.22) 4px, rgba(239,68,68,0.22) 8px)',
+          }}
+        >
+          <svg className="w-5 h-5 text-red-600 dark:text-red-400 drop-shadow" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+          </svg>
+        </div>
+      )}
+
       {/* Lock toggle button */}
       {!isDragOverlay && (
         <button
@@ -89,8 +107,35 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
           </svg>
         </button>
       )}
-      <div className={`text-xs font-medium truncate leading-tight ${pStyle.text}`}>
-        {slot.task?.title || 'Task'}
+      {/* Done checkbox — centered, appears on hover */}
+      {!isDragOverlay && onToggleComplete && (
+        <button
+          type="button"
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 transition-opacity ${
+            slot.task?.completed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onToggleComplete(slot); }}
+          title={slot.task?.completed ? 'Mark incomplete' : 'Mark complete'}
+        >
+          {slot.task?.completed ? (
+            <svg className="w-6 h-6 text-green-500 drop-shadow" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+          ) : (
+            <svg className="w-6 h-6 drop-shadow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="12" cy="12" r="9"/>
+            </svg>
+          )}
+        </button>
+      )}
+      <div className={`text-xs font-medium leading-tight ${pStyle.text} flex items-center gap-1`}>
+        {isOverDeadline && (
+          <svg className="w-3 h-3 flex-shrink-0 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+          </svg>
+        )}
+        <span className={`truncate ${slot.task?.completed ? 'line-through opacity-60' : ''}`}>{slot.task?.title || 'Task'}</span>
       </div>
       {(isDragOverlay || heightPercent > 6) && (
         <div className={`text-[10px] truncate ${pStyle.text} opacity-60 mt-0.5`}>

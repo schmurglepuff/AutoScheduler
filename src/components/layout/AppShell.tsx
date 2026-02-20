@@ -12,6 +12,7 @@ import { useTasks } from '../../hooks/useTasks';
 import { useSchedule } from '../../hooks/useSchedule';
 import { useTheme } from '../../hooks/useTheme';
 import { Button } from '../ui/Button';
+import { shouldSplitTask, splitTaskData, getWorkdayMin } from '../../utils/taskSplit';
 
 export function AppShell() {
   const [currentView, setCurrentView] = useState('calendar');
@@ -23,6 +24,7 @@ export function AppShell() {
   const { settings, updateSettings } = useSettings();
   const { tasks, createTask, updateTask, deleteTask } = useTasks();
   const { slots, regenerate, moveSlot, toggleLock, resizeTaskSlots, addSlot } = useSchedule(tasks, settings);
+  const workdayMin = getWorkdayMin(settings);
 
   useTheme(settings);
 
@@ -48,6 +50,18 @@ export function AppShell() {
     toggleLock.mutate({ id: slot.id, locked: !slot.locked });
   };
 
+  const handleToggleComplete = (slot: ScheduleSlot) => {
+    if (slot.task) updateTask.mutate({ id: slot.task.id, completed: !slot.task.completed });
+  };
+
+  const handleBulkToggleLock = (slotsToToggle: ScheduleSlot[], locked: boolean) => {
+    for (const slot of slotsToToggle) {
+      if (slot.locked !== locked) {
+        toggleLock.mutate({ id: slot.id, locked });
+      }
+    }
+  };
+
   const handleCreateFromCalendar = (startTime: Date) => {
     setCreatingAtTime(startTime.toISOString());
   };
@@ -61,20 +75,34 @@ export function AppShell() {
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
   }) => {
-    createTask.mutate(data, {
-      onSuccess: (newTask) => {
-        if (creatingAtTime && newTask) {
-          const start = new Date(creatingAtTime);
-          const end = new Date(start.getTime() + data.estimated_min * 60 * 1000);
-          addSlot.mutate({
-            task_id: newTask.id,
-            start_time: start.toISOString(),
-            end_time: end.toISOString(),
-          });
+    const tasksToCreate =
+      settings.auto_split_tasks && shouldSplitTask(data.estimated_min, workdayMin)
+        ? splitTaskData(data, workdayMin)
+        : [data];
+
+    const isSplit = tasksToCreate.length > 1;
+
+    const createSequentially = async () => {
+      try {
+        for (let i = 0; i < tasksToCreate.length; i++) {
+          const newTask = await createTask.mutateAsync(tasksToCreate[i]);
+          if (!isSplit && i === 0 && creatingAtTime && newTask) {
+            const start = new Date(creatingAtTime);
+            const end = new Date(start.getTime() + tasksToCreate[0].estimated_min * 60 * 1000);
+            addSlot.mutate({
+              task_id: newTask.id,
+              start_time: start.toISOString(),
+              end_time: end.toISOString(),
+            });
+          }
         }
-        setCreatingAtTime(null);
-      },
-    });
+      } catch (err) {
+        console.error('Failed to create task(s):', err);
+      }
+      setCreatingAtTime(null);
+    };
+
+    createSequentially();
   };
 
   const handleSlotClick = (slot: ScheduleSlot) => {
@@ -162,11 +190,13 @@ export function AppShell() {
                 onSlotClick={handleSlotClick}
                 onMoveSlot={handleMoveSlot}
                 onToggleLock={handleToggleLock}
+                onToggleComplete={handleToggleComplete}
+                onBulkToggleLock={handleBulkToggleLock}
                 onCreateTask={handleCreateFromCalendar}
               />
             </div>
           )}
-          {currentView === 'tasks' && <TaskList />}
+          {currentView === 'tasks' && <TaskList settings={settings} />}
           {currentView === 'settings' && (
             <SettingsPanel
               settings={settings}
@@ -187,6 +217,7 @@ export function AppShell() {
           <TaskForm
             ref={editFormRef}
             initialTask={editingTask}
+            workdayMin={workdayMin}
             onSubmit={handleUpdateTask}
             onCancel={() => setEditingTask(null)}
             onDelete={handleDeleteTask}
@@ -204,6 +235,7 @@ export function AppShell() {
         {creatingAtTime && (
           <TaskForm
             defaultDeadline={creatingAtTime}
+            workdayMin={workdayMin}
             onSubmit={handleCreateNewTask}
             onCancel={() => setCreatingAtTime(null)}
             isSubmitting={createTask.isPending}

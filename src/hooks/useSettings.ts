@@ -10,6 +10,7 @@ const defaultSettings: Settings = {
   include_sunday: false,
   theme: 'light',
   accent_color: '#3b82f6',
+  auto_split_tasks: false,
 };
 
 export function useSettings() {

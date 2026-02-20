@@ -60,6 +60,19 @@ export function useTasks() {
         .eq('id', id);
       if (error) throw error;
 
+      // Propagate deadline changes to all tasks in the same split group
+      if ('deadline' in updates) {
+        const cachedTasks = queryClient.getQueryData<Task[]>(['tasks']);
+        const groupId = cachedTasks?.find((t) => t.id === id)?.split_group_id;
+        if (groupId) {
+          await supabase
+            .from('tasks')
+            .update({ deadline: updates.deadline, updated_at: new Date().toISOString() })
+            .eq('split_group_id', groupId)
+            .neq('id', id);
+        }
+      }
+
       if (people_notes !== undefined) {
         await supabase.from('people_notes').delete().eq('task_id', id);
         if (people_notes.length > 0) {
@@ -71,6 +84,7 @@ export function useTasks() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
     },
   });
 

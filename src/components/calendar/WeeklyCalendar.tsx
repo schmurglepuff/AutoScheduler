@@ -24,6 +24,8 @@ interface WeeklyCalendarProps {
   onSlotClick?: (slot: ScheduleSlot) => void;
   onMoveSlot?: (id: string, startTime: string, endTime: string) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleComplete?: (slot: ScheduleSlot) => void;
+  onBulkToggleLock?: (slots: ScheduleSlot[], locked: boolean) => void;
   onCreateTask?: (startTime: Date) => void;
   autoScheduleButton?: ReactNode;
 }
@@ -44,12 +46,13 @@ function parseCellId(cellId: string): Date | null {
   );
 }
 
-export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock, onCreateTask, autoScheduleButton }: WeeklyCalendarProps) {
+export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock, onToggleComplete, onBulkToggleLock, onCreateTask, autoScheduleButton }: WeeklyCalendarProps) {
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
+  const [showDeadlineOnly, setShowDeadlineOnly] = useState(false);
   const savedWeekOffsetRef = useRef(0);
 
   const sensors = useSensors(
@@ -83,6 +86,22 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
     }
     return result;
   }, [weekStart, settings.include_saturday, settings.include_sunday]);
+
+  const visibleSlots = useMemo(() => {
+    if (viewMode === 'week') {
+      const dayKeys = new Set(days.map((d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`));
+      return slots.filter((s) => {
+        const d = new Date(s.start_time);
+        return dayKeys.has(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      });
+    }
+    return slots.filter((s) => {
+      const d = new Date(s.start_time);
+      return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+    });
+  }, [slots, viewMode, days, monthDate]);
+
+  const allVisibleLocked = visibleSlots.length > 0 && visibleSlots.every((s) => s.locked);
 
   const handleDragStart = (event: DragStartEvent) => {
     const slot = (event.active.data.current as { slot: ScheduleSlot } | undefined)?.slot;
@@ -201,6 +220,41 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
+        leading={
+          onBulkToggleLock ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onBulkToggleLock(visibleSlots, !allVisibleLocked)}
+                disabled={visibleSlots.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title={allVisibleLocked ? 'Unlock all visible slots' : 'Lock all visible slots'}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  {allVisibleLocked ? (
+                    <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z" />
+                  ) : (
+                    <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h2c0-1.66 1.34-3 3-3s3 1.34 3 3v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z" />
+                  )}
+                </svg>
+                {allVisibleLocked ? 'Unlock visible' : 'Lock visible'}
+              </button>
+              <button
+                onClick={() => setShowDeadlineOnly((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  showDeadlineOnly
+                    ? 'bg-accent/10 border-accent/40 text-accent hover:bg-accent/20'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
+                }`}
+                title={showDeadlineOnly ? 'Show all days' : 'Show only days with deadline tasks'}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13zM8 10H6v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zM8 14H6v2h2v-2zm4 0h-2v2h2v-2z" />
+                </svg>
+                Deadlines
+              </button>
+            </div>
+          ) : undefined
+        }
         trailing={autoScheduleButton}
         viewMode={viewMode}
         onToggleView={handleToggleView}
@@ -274,9 +328,10 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                   key={date.toISOString()}
                   date={date}
                   hours={hours}
-                  slots={slots}
+                  slots={showDeadlineOnly ? slots.filter((s) => s.task?.deadline) : slots}
                   onSlotClick={onSlotClick}
                   onToggleLock={onToggleLock}
+                  onToggleComplete={onToggleComplete}
                   onCreateTask={onCreateTask}
                   overCellId={overCellId}
                 />

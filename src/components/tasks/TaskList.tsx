@@ -12,7 +12,8 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
-import type { Task, Priority } from '../../types';
+import type { Task, Priority, Settings } from '../../types';
+import { shouldSplitTask, splitTaskData, getWorkdayMin } from '../../utils/taskSplit';
 import { TaskCard } from './TaskCard';
 import { TaskForm, type TaskFormHandle } from './TaskForm';
 import { Modal } from '../ui/Modal';
@@ -23,13 +24,13 @@ interface TaskFormData {
   title: string;
   description: string;
   estimated_min: number;
-  deadline: string;
+  deadline: string | null;
   priority: Priority;
   completed: boolean;
   people_notes: { person_name: string; note_text: string }[];
 }
 
-export function TaskList() {
+export function TaskList({ settings }: { settings: Settings }) {
   const { tasks, isLoading, createTask, updateTask, deleteTask } = useTasks();
   const [showForm, setShowForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -37,6 +38,8 @@ export function TaskList() {
   const [overdueOpen, setOverdueOpen] = useState(true);
   const [doneOpen, setDoneOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const isDragSelecting = useRef(false);
 
   const now = new Date();
   const q = query.toLowerCase().trim();
@@ -51,10 +54,21 @@ export function TaskList() {
     (t) => !t.completed && (t.deadline === null || new Date(t.deadline) >= now) && matches(t)
   );
 
-  const handleCreate = (data: TaskFormData) => {
-    createTask.mutate(data, {
-      onSuccess: () => setShowForm(false),
-    });
+  const handleCreate = async (data: TaskFormData) => {
+    const workdayMin = getWorkdayMin(settings);
+    const tasksToCreate =
+      settings.auto_split_tasks && shouldSplitTask(data.estimated_min, workdayMin)
+        ? splitTaskData(data, workdayMin)
+        : [data];
+
+    try {
+      for (const t of tasksToCreate) {
+        await createTask.mutateAsync(t);
+      }
+      setShowForm(false);
+    } catch (err) {
+      console.error('Failed to create task(s):', err);
+    }
   };
 
   const handleUpdate = (data: TaskFormData) => {
@@ -78,6 +92,72 @@ export function TaskList() {
   const handleToggleComplete = (task: Task) => {
     updateTask.mutate({ id: task.id, completed: !task.completed });
   };
+
+  const handleDragSelectStart = (id: string) => {
+    isDragSelecting.current = true;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDragSelectEnter = (id: string) => {
+    if (!isDragSelecting.current) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected task${selectedIds.size > 1 ? 's' : ''}?`)) return;
+    for (const id of selectedIds) {
+      deleteTask.mutate(id);
+    }
+    setSelectedIds(new Set());
+  };
+
+  useEffect(() => {
+    const endDrag = () => { isDragSelecting.current = false; };
+    window.addEventListener('pointerup', endDrag);
+    return () => window.removeEventListener('pointerup', endDrag);
+  }, []);
+
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Element;
+      if (target.closest('[data-task-card]')) return;
+      setSelectedIds(new Set());
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [selectedIds]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (e.key === 'Escape') {
+        if (selectedIds.size > 0) setSelectedIds(new Set());
+        return;
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (selectedIds.size === 0) return;
+      e.preventDefault();
+      if (!confirm(`Delete ${selectedIds.size} selected task${selectedIds.size > 1 ? 's' : ''}?`)) return;
+      for (const id of selectedIds) {
+        deleteTask.mutate(id);
+      }
+      setSelectedIds(new Set());
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds, deleteTask]);
 
   if (isLoading) {
     return (
@@ -134,6 +214,9 @@ export function TaskList() {
                   task={task}
                   onClick={setEditingTask}
                   onToggleComplete={handleToggleComplete}
+                  selected={selectedIds.has(task.id)}
+                  onDragSelectStart={handleDragSelectStart}
+                  onDragSelectEnter={handleDragSelectEnter}
                 />
               ))}
             </div>
@@ -156,6 +239,9 @@ export function TaskList() {
           onClickTask={setEditingTask}
           onToggleComplete={handleToggleComplete}
           onChangePriority={(id, priority) => updateTask.mutate({ id, priority })}
+          selectedIds={selectedIds}
+          onDragSelectStart={handleDragSelectStart}
+          onDragSelectEnter={handleDragSelectEnter}
         />
       ) : null}
 
@@ -176,6 +262,9 @@ export function TaskList() {
                   task={task}
                   onClick={setEditingTask}
                   onToggleComplete={handleToggleComplete}
+                  selected={selectedIds.has(task.id)}
+                  onDragSelectStart={handleDragSelectStart}
+                  onDragSelectEnter={handleDragSelectEnter}
                 />
               ))}
             </div>
@@ -185,6 +274,7 @@ export function TaskList() {
 
       <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="New Task">
         <TaskForm
+          workdayMin={getWorkdayMin(settings)}
           onSubmit={handleCreate}
           onCancel={() => setShowForm(false)}
           isSubmitting={createTask.isPending}
@@ -200,6 +290,7 @@ export function TaskList() {
           <TaskForm
             ref={editFormRef}
             initialTask={editingTask}
+            workdayMin={getWorkdayMin(settings)}
             onSubmit={handleUpdate}
             onCancel={() => setEditingTask(null)}
             onDelete={() => handleDelete(editingTask.id)}
@@ -225,6 +316,9 @@ function DroppableColumn({
   onClickTask,
   onToggleComplete,
   isOver,
+  selectedIds,
+  onDragSelectStart,
+  onDragSelectEnter,
 }: {
   priority: Priority;
   label: string;
@@ -233,6 +327,9 @@ function DroppableColumn({
   onClickTask: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   isOver: boolean;
+  selectedIds: Set<string>;
+  onDragSelectStart: (id: string) => void;
+  onDragSelectEnter: (id: string) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: priority });
 
@@ -258,6 +355,9 @@ function DroppableColumn({
               task={task}
               onClick={onClickTask}
               onToggleComplete={onToggleComplete}
+              selected={selectedIds.has(task.id)}
+              onDragSelectStart={onDragSelectStart}
+              onDragSelectEnter={onDragSelectEnter}
             />
           ))
         )}
@@ -271,11 +371,17 @@ function PriorityColumns({
   onClickTask,
   onToggleComplete,
   onChangePriority,
+  selectedIds,
+  onDragSelectStart,
+  onDragSelectEnter,
 }: {
   tasks: Task[];
   onClickTask: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   onChangePriority: (id: string, priority: Priority) => void;
+  selectedIds: Set<string>;
+  onDragSelectStart: (id: string) => void;
+  onDragSelectEnter: (id: string) => void;
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [overColumn, setOverColumn] = useState<Priority | null>(null);
@@ -381,6 +487,9 @@ function PriorityColumns({
             onClickTask={onClickTask}
             onToggleComplete={onToggleComplete}
             isOver={overColumn === priority}
+            selectedIds={selectedIds}
+            onDragSelectStart={onDragSelectStart}
+            onDragSelectEnter={onDragSelectEnter}
           />
         ))}
       </div>

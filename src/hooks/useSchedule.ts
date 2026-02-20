@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { generateSchedule } from '../services/scheduler';
+import { shouldSplitTask, splitTaskData, getWorkdayMin } from '../utils/taskSplit';
 import type { Task, Settings, ScheduleSlot } from '../types';
 
 export function useSchedule(tasks: Task[], settings: Settings) {
@@ -20,24 +21,131 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
   const regenerate = useMutation({
     mutationFn: async () => {
-      // Fetch current locked slots
-      const { data: lockedSlots, error: fetchErr } = await supabase
+      // 1. Fetch fresh tasks directly from DB (avoids stale closure)
+      const { data: rawTasks, error: taskErr } = await supabase
+        .from('tasks')
+        .select('*, people_notes(*)')
+        .order('created_at', { ascending: true });
+      if (taskErr) throw taskErr;
+      let currentTasks = (rawTasks || []) as Task[];
+
+      // 2. Fetch locked slots up-front — used both for split decisions and the scheduler
+      const { data: lockedSlotsData, error: fetchErr } = await supabase
         .from('schedule_slots')
         .select('*, task:tasks(*)')
         .eq('locked', true);
       if (fetchErr) throw fetchErr;
+      const locked = (lockedSlotsData || []) as ScheduleSlot[];
+      const lockedTaskIds = new Set(locked.map((s) => s.task_id));
 
-      const locked = (lockedSlots || []) as ScheduleSlot[];
+      const workdayMin = getWorkdayMin(settings);
 
-      const newSlots = generateSchedule(tasks, settings, locked);
+      // Helper: insert a task + its notes, return the created Task
+      const insertSplitTask = async (
+        part: ReturnType<typeof splitTaskData>[number],
+        notes: { person_name: string; note_text: string }[]
+      ): Promise<Task> => {
+        const { data: created, error: insErr } = await supabase
+          .from('tasks')
+          .insert({
+            title: part.title,
+            description: part.description,
+            estimated_min: part.estimated_min,
+            deadline: part.deadline,
+            priority: part.priority,
+            completed: false,
+            split_group_id: part.split_group_id,
+            split_index: part.split_index,
+          })
+          .select()
+          .single();
+        if (insErr) throw insErr;
+        if (notes.length > 0) {
+          await supabase.from('people_notes').insert(
+            notes.map((n) => ({ task_id: created.id, person_name: n.person_name, note_text: n.note_text }))
+          );
+        }
+        return { ...created, people_notes: notes } as Task;
+      };
 
-      // Delete only unlocked future slots (preserve past slots)
+      // Helper: delete a task and its slots
+      const deleteTaskAndSlots = async (id: string) => {
+        await supabase.from('schedule_slots').delete().eq('task_id', id);
+        await supabase.from('tasks').delete().eq('id', id);
+      };
+
+      // 3. Auto-split unsplit tasks that qualify (skip those with locked slots)
+      const needsSplit = currentTasks.filter(
+        (t) => !t.completed && !t.split_group_id && !lockedTaskIds.has(t.id) &&
+          shouldSplitTask(t.estimated_min, workdayMin)
+      );
+      if (needsSplit.length > 0) {
+        const newlyCreated: Task[] = [];
+        for (const task of needsSplit) {
+          await deleteTaskAndSlots(task.id);
+          const parts = splitTaskData(task, workdayMin);
+          const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
+          for (const part of parts) {
+            newlyCreated.push(await insertSplitTask(part, notes));
+          }
+        }
+        const splitIds = new Set(needsSplit.map((t) => t.id));
+        currentTasks = [...currentTasks.filter((t) => !splitIds.has(t.id)), ...newlyCreated];
+      }
+
+      // 4. Re-split existing split groups whose total time may need re-chunking.
+      //    Skip any group where a task is completed or has a locked slot.
+      const splitGroups = new Map<string, Task[]>();
+      for (const t of currentTasks) {
+        if (!t.split_group_id || t.completed) continue;
+        const g = splitGroups.get(t.split_group_id) ?? [];
+        g.push(t);
+        splitGroups.set(t.split_group_id, g);
+      }
+
+      for (const groupTasks of splitGroups.values()) {
+        if (groupTasks.some((t) => t.completed || lockedTaskIds.has(t.id))) continue;
+
+        // Reconstitute original: sum times, strip " X/N" suffix from title
+        const totalMin = groupTasks.reduce((s, t) => s + t.estimated_min, 0);
+        const first = groupTasks[0];
+        const baseTitle = first.title.replace(/\s\d+\/\d+$/, '');
+        const notes = (first.people_notes || []) as { person_name: string; note_text: string }[];
+
+        const newParts = splitTaskData(
+          { title: baseTitle, description: first.description ?? '', estimated_min: totalMin,
+            deadline: first.deadline, priority: first.priority, completed: false, people_notes: notes },
+          workdayMin
+        );
+
+        // Skip if the split is identical to the current one (nothing to change)
+        const sorted = [...groupTasks].sort((a, b) => (a.split_index ?? 0) - (b.split_index ?? 0));
+        if (
+          newParts.length === sorted.length &&
+          newParts.every((p, i) => p.estimated_min === sorted[i].estimated_min)
+        ) continue;
+
+        // Replace the group
+        for (const t of groupTasks) await deleteTaskAndSlots(t.id);
+        const newGroupTasks: Task[] = [];
+        for (const part of newParts) {
+          newGroupTasks.push(await insertSplitTask(part, notes));
+        }
+        const oldIds = new Set(groupTasks.map((t) => t.id));
+        currentTasks = [...currentTasks.filter((t) => !oldIds.has(t.id)), ...newGroupTasks];
+      }
+
+      // 5. Generate schedule with the final task list
+      const newSlots = generateSchedule(currentTasks, settings, locked);
+
+      // 6. Delete unlocked future slots
       await supabase
         .from('schedule_slots')
         .delete()
         .eq('locked', false)
         .gte('start_time', new Date().toISOString());
 
+      // 7. Insert new slots
       if (newSlots.length > 0) {
         for (let i = 0; i < newSlots.length; i += 100) {
           const batch = newSlots.slice(i, i + 100);
@@ -48,6 +156,7 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 

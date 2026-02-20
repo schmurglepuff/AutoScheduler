@@ -9,6 +9,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   people_notes?: PersonNote[];
+  split_group_id?: string | null;
+  split_index?: number | null;
 }
 
 export interface PersonNote {
@@ -36,6 +38,7 @@ export interface Settings {
   include_sunday: boolean;
   theme: 'light' | 'dark';
   accent_color: string;
+  auto_split_tasks: boolean;
 }
 
 export type Priority = 'Low' | 'Medium' | 'High';
