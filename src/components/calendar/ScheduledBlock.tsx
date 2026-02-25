@@ -4,18 +4,18 @@ import { formatTime } from '../../utils/dateHelpers';
 
 const priorityStyle: Record<string, { bg: string; borderColor: string; text: string }> = {
   High: {
-    bg: 'bg-red-50 dark:bg-red-950/40',
-    borderColor: '#f87171',
+    bg: 'bg-red-100 dark:bg-red-400/30',
+    borderColor: '#ef4444',
     text: 'text-red-900 dark:text-red-200',
   },
   Medium: {
-    bg: 'bg-amber-50 dark:bg-amber-950/40',
-    borderColor: '#fbbf24',
+    bg: 'bg-amber-100 dark:bg-amber-500/30',
+    borderColor: '#f59e0b',
     text: 'text-amber-900 dark:text-amber-200',
   },
   Low: {
-    bg: 'bg-emerald-50 dark:bg-emerald-950/40',
-    borderColor: '#34d399',
+    bg: 'bg-emerald-100 dark:bg-emerald-500/30',
+    borderColor: '#10b981',
     text: 'text-emerald-900 dark:text-emerald-200',
   },
 };
