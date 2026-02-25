@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { ScheduleSlot } from '../../types';
 import { isSameDay, formatDateISO } from '../../utils/dateHelpers';
 import { TimeSlot } from './TimeSlot';
@@ -18,6 +19,12 @@ interface DayColumnProps {
 }
 
 export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -142,6 +149,21 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
             />
           );
         })}
+        {/* Current time indicator */}
+        {isToday && (() => {
+          const nowOffset = now.getHours() + now.getMinutes() / 60 - startHour;
+          const topPercent = (nowOffset / totalHours) * 100;
+          if (topPercent < 0 || topPercent > 100) return null;
+          return (
+            <div
+              className="absolute left-0 right-0 z-30 pointer-events-none flex items-center"
+              style={{ top: `${topPercent}%` }}
+            >
+              <div className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" />
+              <div className="flex-1 h-[2px] bg-accent -ml-px" />
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
