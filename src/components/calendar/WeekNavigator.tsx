@@ -12,7 +12,7 @@ interface WeekNavigatorProps {
 
 export function WeekNavigator({ onPrev, onNext, onToday, leading, trailing, viewMode = 'week', onToggleView }: WeekNavigatorProps) {
   return (
-    <div className="flex items-center">
+    <div className="sticky top-0 z-20 bg-gray-50 dark:bg-gray-950 py-2 flex items-center">
       <div className="flex-none">{leading}</div>
       <div className="flex items-center gap-3 flex-1 justify-center">
         <button
