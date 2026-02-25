@@ -240,6 +240,129 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         }
       }
 
+      // 5c. Split tasks whose slots are separated by the lunch break into separate task records
+      const lunchSlotsByTaskId = new Map<string, typeof newSlots[number][]>();
+      for (const slot of newSlots) {
+        const arr = lunchSlotsByTaskId.get(slot.task_id) || [];
+        arr.push(slot);
+        lunchSlotsByTaskId.set(slot.task_id, arr);
+      }
+
+      // Parse lunch boundaries as hours (e.g. "12:00" -> 12)
+      const [lunchStartH, lunchStartM] = settings.lunch_start.split(':').map(Number);
+      const [lunchEndH, lunchEndM] = settings.lunch_end.split(':').map(Number);
+      const lunchStartMin = lunchStartH * 60 + lunchStartM;
+      const lunchEndMin = lunchEndH * 60 + lunchEndM;
+
+      for (const [taskId, taskSlots] of lunchSlotsByTaskId) {
+        // Only consider tasks with multiple slots on the same day
+        const dayGroups = new Map<string, typeof taskSlots>();
+        for (const slot of taskSlots) {
+          const dk = slotDayKey(slot.start_time);
+          const arr = dayGroups.get(dk) || [];
+          arr.push(slot);
+          dayGroups.set(dk, arr);
+        }
+
+        // Find a day with a lunch gap
+        let amSlots: typeof taskSlots | null = null;
+        let pmSlots: typeof taskSlots | null = null;
+
+        for (const [, daySlotsArr] of dayGroups) {
+          if (daySlotsArr.length < 2) continue;
+          daySlotsArr.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+          for (let i = 0; i < daySlotsArr.length - 1; i++) {
+            const slotAEnd = new Date(daySlotsArr[i].end_time);
+            const slotBStart = new Date(daySlotsArr[i + 1].start_time);
+            const aEndMin = slotAEnd.getHours() * 60 + slotAEnd.getMinutes();
+            const bStartMin = slotBStart.getHours() * 60 + slotBStart.getMinutes();
+
+            if (aEndMin <= lunchStartMin && bStartMin >= lunchEndMin) {
+              amSlots = daySlotsArr.slice(0, i + 1);
+              pmSlots = daySlotsArr.slice(i + 1);
+              break;
+            }
+          }
+          if (amSlots) break;
+        }
+
+        if (!amSlots || !pmSlots) continue;
+
+        const task = currentTasks.find((t) => t.id === taskId);
+        if (!task || task.completed) continue;
+
+        const baseTitle = task.title.replace(/\s\d+\/\d+$/, '');
+        const groupId = task.split_group_id || crypto.randomUUID();
+        const origIndex = task.split_index ?? 1;
+        const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
+
+        // Delete original task from DB (slots haven't been inserted yet)
+        await supabase.from('schedule_slots').delete().eq('task_id', taskId);
+        await supabase.from('tasks').delete().eq('id', taskId);
+
+        const portions = [amSlots, pmSlots];
+        const createdTasks: Task[] = [];
+
+        for (const portionSlots of portions) {
+          const portionMin = portionSlots.reduce(
+            (sum, s) => sum + (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / (1000 * 60),
+            0
+          );
+
+          const { data: created, error: insErr } = await supabase
+            .from('tasks')
+            .insert({
+              title: baseTitle,
+              description: task.description ?? '',
+              estimated_min: portionMin,
+              deadline: task.deadline,
+              priority: task.priority,
+              completed: false,
+              split_group_id: groupId,
+              split_index: 0,
+            })
+            .select()
+            .single();
+          if (insErr) throw insErr;
+
+          if (notes.length > 0) {
+            await supabase.from('people_notes').insert(
+              notes.map((n) => ({ task_id: created.id, person_name: n.person_name, note_text: n.note_text }))
+            );
+          }
+
+          // Reassign the pending slot entries to the new task
+          for (const slot of portionSlots) {
+            slot.task_id = created.id;
+          }
+
+          createdTasks.push({ ...created, people_notes: notes } as Task);
+        }
+
+        // Update currentTasks: remove original, add lunch-split parts
+        currentTasks = [...currentTasks.filter((t) => t.id !== taskId), ...createdTasks];
+
+        // Renumber the entire split group
+        const allGroupMembers = currentTasks.filter((t) => t.split_group_id === groupId);
+        allGroupMembers.sort((a, b) => {
+          const aIsNew = createdTasks.some((ct) => ct.id === a.id);
+          const bIsNew = createdTasks.some((ct) => ct.id === b.id);
+          const aSort = aIsNew ? origIndex + createdTasks.findIndex((ct) => ct.id === a.id) * 0.01 : (a.split_index ?? 0);
+          const bSort = bIsNew ? origIndex + createdTasks.findIndex((ct) => ct.id === b.id) * 0.01 : (b.split_index ?? 0);
+          return aSort - bSort;
+        });
+
+        const totalN = allGroupMembers.length;
+        for (let i = 0; i < allGroupMembers.length; i++) {
+          const member = allGroupMembers[i];
+          const newTitle = `${baseTitle} ${i + 1}/${totalN}`;
+          await supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
+          member.title = newTitle;
+          member.split_index = i + 1;
+        }
+      }
+
       // 6. Delete unlocked future slots
       await supabase
         .from('schedule_slots')
