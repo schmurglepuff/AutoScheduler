@@ -71,7 +71,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
       className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} left-1 right-1 rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} transition-all
-        ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500 bg-stripes' : ''}
+        ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500' : ''}
         ${isFullyOverdue && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
         ${isPartiallyOverdue && !isLocked ? 'ring-2 ring-amber-400 dark:ring-amber-400' : ''}
         ${isDragging ? 'opacity-30' : ''}
@@ -116,7 +116,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
       {!isDragOverlay && (
         <button
           type="button"
-          className={`absolute top-0 right-0 bottom-0 w-7 flex items-center justify-center rounded-r-md transition-all ${
+          className={`absolute top-0 right-0 bottom-0 w-7 z-[2] flex items-center justify-center rounded-r-md transition-all ${
             isLocked
               ? 'bg-gray-500/20 dark:bg-gray-400/20 hover:bg-gray-500/30 dark:hover:bg-gray-400/30'
               : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto hover:bg-black/10 dark:hover:bg-white/10'
