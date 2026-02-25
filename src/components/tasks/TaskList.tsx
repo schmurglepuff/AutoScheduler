@@ -101,6 +101,15 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
     updateTask.mutate({ id: task.id, completed: !task.completed });
   };
 
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleDragSelectStart = (id: string) => {
     isDragSelecting.current = true;
     setSelectedIds((prev) => {
@@ -154,6 +163,14 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
         if (selectedIds.size > 0) setSelectedIds(new Set());
         return;
       }
+      if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (selectedIds.size === 0) return;
+        for (const id of selectedIds) {
+          const task = tasks.find((t) => t.id === id);
+          if (task) updateTask.mutate({ id: task.id, completed: !task.completed });
+        }
+        return;
+      }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       if (selectedIds.size === 0) return;
       e.preventDefault();
@@ -165,7 +182,7 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteTask]);
+  }, [selectedIds, deleteTask, tasks, updateTask]);
 
   if (isLoading) {
     return (
@@ -225,6 +242,7 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
                   selected={selectedIds.has(task.id)}
                   onDragSelectStart={handleDragSelectStart}
                   onDragSelectEnter={handleDragSelectEnter}
+                  onToggleSelect={handleToggleSelect}
                 />
               ))}
             </div>
@@ -250,6 +268,7 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
           selectedIds={selectedIds}
           onDragSelectStart={handleDragSelectStart}
           onDragSelectEnter={handleDragSelectEnter}
+          onToggleSelect={handleToggleSelect}
         />
       ) : null}
 
@@ -273,6 +292,7 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
                   selected={selectedIds.has(task.id)}
                   onDragSelectStart={handleDragSelectStart}
                   onDragSelectEnter={handleDragSelectEnter}
+                  onToggleSelect={handleToggleSelect}
                 />
               ))}
             </div>
@@ -327,6 +347,7 @@ function DroppableColumn({
   selectedIds,
   onDragSelectStart,
   onDragSelectEnter,
+  onToggleSelect,
 }: {
   priority: Priority;
   label: string;
@@ -338,6 +359,7 @@ function DroppableColumn({
   selectedIds: Set<string>;
   onDragSelectStart: (id: string) => void;
   onDragSelectEnter: (id: string) => void;
+  onToggleSelect: (id: string) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: priority });
 
@@ -366,6 +388,7 @@ function DroppableColumn({
               selected={selectedIds.has(task.id)}
               onDragSelectStart={onDragSelectStart}
               onDragSelectEnter={onDragSelectEnter}
+              onToggleSelect={onToggleSelect}
             />
           ))
         )}
@@ -382,6 +405,7 @@ function PriorityColumns({
   selectedIds,
   onDragSelectStart,
   onDragSelectEnter,
+  onToggleSelect,
 }: {
   tasks: Task[];
   onClickTask: (task: Task) => void;
@@ -390,6 +414,7 @@ function PriorityColumns({
   selectedIds: Set<string>;
   onDragSelectStart: (id: string) => void;
   onDragSelectEnter: (id: string) => void;
+  onToggleSelect: (id: string) => void;
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [overColumn, setOverColumn] = useState<Priority | null>(null);
@@ -498,6 +523,7 @@ function PriorityColumns({
             selectedIds={selectedIds}
             onDragSelectStart={onDragSelectStart}
             onDragSelectEnter={onDragSelectEnter}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       </div>

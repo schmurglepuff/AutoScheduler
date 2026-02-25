@@ -1,3 +1,4 @@
+import { useRef, useCallback, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task } from '../../types';
@@ -10,9 +11,10 @@ interface TaskCardProps {
   selected?: boolean;
   onDragSelectStart?: (id: string) => void;
   onDragSelectEnter?: (id: string) => void;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter }: TaskCardProps) {
+export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter, onToggleSelect }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task },
@@ -26,6 +28,38 @@ export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSele
 
   const isOverdue = !task.completed && task.deadline !== null && new Date(task.deadline) < new Date();
 
+  // S-key select hotkey (same pattern as L-key lock in calendar)
+  const hoveredRef = useRef(false);
+  const sToggledRef = useRef(false);
+  const sHeldRef = useRef(false);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+    if (e.key === 's' || e.key === 'S') {
+      sHeldRef.current = true;
+      if (hoveredRef.current && !sToggledRef.current) {
+        sToggledRef.current = true;
+        onToggleSelect?.(task.id);
+      }
+    }
+  }, [task, onToggleSelect]);
+
+  const handleKeyUp = useCallback((e: KeyboardEvent) => {
+    if (e.key === 's' || e.key === 'S') sHeldRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp]);
+
   return (
     <div
       ref={setNodeRef}
@@ -34,7 +68,22 @@ export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSele
       {...attributes}
       {...listeners}
       onClick={() => onClick(task)}
-      onPointerEnter={() => onDragSelectEnter?.(task.id)}
+      onPointerEnter={() => {
+        hoveredRef.current = true;
+        sToggledRef.current = false;
+        if (sHeldRef.current) {
+          sToggledRef.current = true;
+          onToggleSelect?.(task.id);
+        }
+        // Only forward drag-select enter when S key isn't driving selection
+        if (!sHeldRef.current) {
+          onDragSelectEnter?.(task.id);
+        }
+      }}
+      onPointerLeave={() => {
+        hoveredRef.current = false;
+        sToggledRef.current = false;
+      }}
       className={`group border rounded-lg p-4 transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
         selected
           ? 'ring-2 ring-accent border-accent bg-accent/5 dark:bg-accent/10 hover:border-accent'
