@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import type { ScheduleSlot } from '../../types';
 import { isSameDay, formatDateISO } from '../../utils/dateHelpers';
 import { TimeSlot } from './TimeSlot';
@@ -13,18 +12,13 @@ interface DayColumnProps {
   onToggleComplete?: (slot: ScheduleSlot) => void;
   onCreateTask?: (startTime: Date) => void;
   overCellId: string | null;
+  workDayStart?: string;
   workDayEnd?: string;
   lunchStart?: string;
   lunchEnd?: string;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
-
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId, workDayStart, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -90,6 +84,34 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
       </div>
       {/* Time grid with droppable half-hour cells */}
       <div className="relative overflow-hidden">
+        {/* Off-hours shading (before work start) */}
+        {workDayStart && (() => {
+          const [wsH, wsM] = workDayStart.split(':').map(Number);
+          const workStartOffset = wsH + wsM / 60 - startHour;
+          const topPct = 0;
+          const heightPct = (workStartOffset / totalHours) * 100;
+          if (heightPct <= 0) return null;
+          return (
+            <div
+              className="absolute inset-x-0 bg-gray-100/70 dark:bg-gray-800/40 z-[1] pointer-events-none"
+              style={{ top: `${topPct}%`, height: `${Math.min(heightPct, 100)}%` }}
+            />
+          );
+        })()}
+        {/* Off-hours shading (after work end) */}
+        {workDayEnd && (() => {
+          const [weH, weM] = workDayEnd.split(':').map(Number);
+          const workEndOffset = weH + weM / 60 - startHour;
+          const topPct = (workEndOffset / totalHours) * 100;
+          const heightPct = 100 - topPct;
+          if (topPct >= 100 || heightPct <= 0) return null;
+          return (
+            <div
+              className="absolute inset-x-0 bg-gray-100/70 dark:bg-gray-800/40 z-[1] pointer-events-none"
+              style={{ top: `${Math.max(0, topPct)}%`, height: `${heightPct}%` }}
+            />
+          );
+        })()}
         {/* Lunch band */}
         {lunchStart && lunchEnd && (() => {
           const [lsH, lsM] = lunchStart.split(':').map(Number);
@@ -149,21 +171,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
             />
           );
         })}
-        {/* Current time indicator */}
-        {isToday && (() => {
-          const nowOffset = now.getHours() + now.getMinutes() / 60 - startHour;
-          const topPercent = (nowOffset / totalHours) * 100;
-          if (topPercent < 0 || topPercent > 100) return null;
-          return (
-            <div
-              className="absolute left-0 right-0 z-30 pointer-events-none flex items-center"
-              style={{ top: `${topPercent}%` }}
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" />
-              <div className="flex-1 h-[2px] bg-accent -ml-px" />
-            </div>
-          );
-        })()}
+
       </div>
     </div>
   );

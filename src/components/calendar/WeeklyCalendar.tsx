@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,7 @@ import {
 } from '@dnd-kit/core';
 import type { ReactNode } from 'react';
 import type { ScheduleSlot, Settings } from '../../types';
-import { startOfWeek, startOfMonth, addDays, getHoursArray, parseTimeString } from '../../utils/dateHelpers';
+import { startOfWeek, startOfMonth, addDays, getHoursArray, parseTimeString, isSameDay } from '../../utils/dateHelpers';
 import { WeekNavigator } from './WeekNavigator';
 import { DayColumn } from './DayColumn';
 import { ScheduledBlock } from './ScheduledBlock';
@@ -53,7 +53,13 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
   const [showDeadlineOnly, setShowDeadlineOnly] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const savedWeekOffsetRef = useRef(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -71,21 +77,22 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
     return d;
   }, [monthOffset]);
 
-  const { hours: startHour } = parseTimeString(settings.work_day_start);
-  const { hours: endHour } = parseTimeString(settings.work_day_end);
+  const { hours: workStartHour } = parseTimeString(settings.work_day_start);
+  const { hours: workEndHour } = parseTimeString(settings.work_day_end);
 
-  // Expand hours array if any slot extends past work_day_end
-  const latestSlotHour = useMemo(() => {
-    let latest = endHour;
+  // Display range: 07:00–20:00 minimum, but expand if work hours or slots extend beyond
+  const displayStart = Math.min(7, workStartHour);
+  const displayEnd = useMemo(() => {
+    let latest = Math.max(20, workEndHour);
     for (const slot of slots) {
       const slotEnd = new Date(slot.end_time);
       const h = slotEnd.getHours() + (slotEnd.getMinutes() > 0 ? 1 : 0);
       if (h > latest) latest = h;
     }
     return Math.min(latest, 24); // cap at midnight
-  }, [slots, endHour]);
+  }, [slots, workEndHour]);
 
-  const hours = getHoursArray(startHour, latestSlotHour);
+  const hours = getHoursArray(displayStart, displayEnd);
 
   const days = useMemo(() => {
     const result: Date[] = [];
@@ -342,11 +349,31 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                   onToggleComplete={onToggleComplete}
                   onCreateTask={onCreateTask}
                   overCellId={overCellId}
+                  workDayStart={settings.work_day_start}
                   workDayEnd={settings.work_day_end}
                   lunchStart={settings.lunch_start}
                   lunchEnd={settings.lunch_end}
                 />
               ))}
+              {/* Current time indicator – spans full width */}
+              {days.some((d) => isSameDay(d, now)) && (() => {
+                const startHour = hours[0] || 0;
+                const nowOffset = now.getHours() + now.getMinutes() / 60 - startHour;
+                const topPx = 62 + nowOffset * 64;
+                if (nowOffset < 0 || nowOffset > hours.length) return null;
+                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                return (
+                  <div
+                    className="absolute left-0 right-0 z-30 pointer-events-none flex items-center"
+                    style={{ top: `${topPx}px` }}
+                  >
+                    <div className="bg-accent text-white text-[11px] font-medium tabular-nums px-1 rounded-sm leading-tight">
+                      {timeStr}
+                    </div>
+                    <div className="flex-1 h-[2px] bg-accent" />
+                  </div>
+                );
+              })()}
             </div>
             <DragOverlay dropAnimation={null}>
               {activeSlot && (
