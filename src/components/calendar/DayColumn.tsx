@@ -125,14 +125,14 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
           const clampedHeight = Math.min(100 - clampedTop, lunchHeight - (clampedTop - lunchTop));
           return (
             <div
-              className="absolute inset-x-0 bg-amber-50 dark:bg-amber-900/20 border-y border-dashed border-amber-200 dark:border-amber-700/40 z-[11] pointer-events-auto group flex items-center justify-center"
+              className="absolute inset-x-0 bg-amber-50/80 dark:bg-yellow-200/45 border-y border-dashed border-amber-200 dark:border-yellow-300/60 z-[11] pointer-events-auto group flex items-center justify-center"
               style={{ top: `${clampedTop}%`, height: `${clampedHeight}%` }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
                 fill="currentColor"
-                className="w-5 h-5 text-gray-400 dark:text-gray-500 opacity-60 animate-[wiggle_1.5s_ease-in-out_infinite]"
+                className="w-7 h-7 text-gray-400 dark:text-gray-700 opacity-60 animate-[wiggle_1.5s_ease-in-out_infinite]"
               >
                 <path d="M3 2v20h2V2H3zm16 0v6a4 4 0 0 1-3 3.87V22h-2V11.87A4 4 0 0 1 11 8V2h2v6a2 2 0 0 0 1 1.73V2h2v7.73A2 2 0 0 0 17 8V2h2z" />
               </svg>
