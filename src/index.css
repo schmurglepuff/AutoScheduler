@@ -9,6 +9,12 @@
   --animate-shimmer: shimmer 3s linear infinite;
 }
 
+@keyframes wiggle {
+  0% { transform: rotate(10deg); }
+  50% { transform: rotate(-10deg); }
+  100% { transform: rotate(10deg); }
+}
+
 @keyframes shimmer {
   0% { background-position: 100% 50%; }
   100% { background-position: -100% 50%; }
