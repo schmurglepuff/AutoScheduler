@@ -7,11 +7,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   title text NOT NULL,
   description text DEFAULT '',
   estimated_min integer NOT NULL,
-  deadline timestamptz NOT NULL,
+  deadline timestamptz,
   priority text NOT NULL CHECK (priority IN ('Low', 'Medium', 'High')),
   completed boolean DEFAULT false,
   created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
+  updated_at timestamptz DEFAULT now(),
+  split_group_id uuid NULL,
+  split_index integer NULL
 );
 
 -- People notes (linked to tasks)
@@ -28,7 +30,8 @@ CREATE TABLE IF NOT EXISTS schedule_slots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   start_time timestamptz NOT NULL,
-  end_time timestamptz NOT NULL
+  end_time timestamptz NOT NULL,
+  locked boolean DEFAULT false
 );
 
 -- Settings (singleton row)
@@ -39,7 +42,11 @@ CREATE TABLE IF NOT EXISTS settings (
   include_saturday boolean DEFAULT false,
   include_sunday boolean DEFAULT false,
   theme text DEFAULT 'light',
-  accent_color text DEFAULT '#3b82f6'
+  accent_color text DEFAULT '#3b82f6',
+  auto_split_tasks boolean DEFAULT false,
+  scheduler_active boolean DEFAULT false,
+  lunch_start text DEFAULT '12:00',
+  lunch_end text DEFAULT '13:00'
 );
 
 -- Seed the singleton settings row
@@ -56,6 +63,14 @@ CREATE POLICY "Allow all on tasks" ON tasks FOR ALL USING (true) WITH CHECK (tru
 CREATE POLICY "Allow all on people_notes" ON people_notes FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on schedule_slots" ON schedule_slots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on settings" ON settings FOR ALL USING (true) WITH CHECK (true);
+
+-- Migration: add auto-split columns if upgrading from an earlier schema
+-- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_group_id uuid NULL;
+-- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_index integer NULL;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_split_tasks boolean NOT NULL DEFAULT false;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS scheduler_active boolean NOT NULL DEFAULT false;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS lunch_start text NOT NULL DEFAULT '12:00';
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS lunch_end text NOT NULL DEFAULT '13:00';
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_people_notes_task_id ON people_notes(task_id);

@@ -6,6 +6,12 @@
   --color-accent: var(--accent-color, #3b82f6);
   --color-accent-light: color-mix(in srgb, var(--accent-color, #3b82f6) 20%, white);
   --color-accent-dark: color-mix(in srgb, var(--accent-color, #3b82f6) 80%, black);
+  --animate-shimmer: shimmer 3s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: -100% 50%; }
 }
 
 body {
@@ -16,4 +22,32 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+.bg-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(0, 0, 0, 0.06) 4px,
+    rgba(0, 0, 0, 0.06) 6px
+  );
+}
+
+.scheduled-block {
+  border-left-color: transparent !important;
+}
+
+.scheduled-block:hover {
+  border-left-color: var(--block-border-color) !important;
+}
+
+:where(.dark) .bg-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.06) 4px,
+    rgba(255, 255, 255, 0.06) 6px
+  );
 }

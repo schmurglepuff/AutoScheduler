@@ -10,6 +10,10 @@ const defaultSettings: Settings = {
   include_sunday: false,
   theme: 'light',
   accent_color: '#3b82f6',
+  auto_split_tasks: false,
+  scheduler_active: false,
+  lunch_start: '12:00',
+  lunch_end: '13:00',
 };
 
 export function useSettings() {

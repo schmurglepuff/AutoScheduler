@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, forwardRef, useImperativeHandle } from 'react';
 import type { Task, Priority } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -12,26 +12,102 @@ interface PersonNoteEntry {
 
 interface TaskFormProps {
   initialTask?: Task;
+  defaultDeadline?: string;
+  /** Minutes per workday (from settings). 1d in the form = this many minutes. Default 480. */
+  workdayMin?: number;
   onSubmit: (data: {
     title: string;
     description: string;
     estimated_min: number;
-    deadline: string;
+    deadline: string | null;
     priority: Priority;
     completed: boolean;
     people_notes: PersonNoteEntry[];
   }) => void;
   onCancel: () => void;
+  onDelete?: () => void;
   isSubmitting?: boolean;
 }
 
-export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: TaskFormProps) {
+// Generate options
+const dayOptions = Array.from({ length: 31 }, (_, i) => ({
+  value: String(i),
+  label: `${i}d`,
+}));
+
+const hourOptions = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i),
+  label: `${i}h`,
+}));
+
+const minuteOptions = [0, 15, 30, 45].map((m) => ({
+  value: String(m),
+  label: `${m}m`,
+}));
+
+const clockHourOptions = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i).padStart(2, '0'),
+  label: String(i).padStart(2, '0'),
+}));
+
+const clockMinuteOptions = [0, 15, 30, 45].map((m) => ({
+  value: String(m).padStart(2, '0'),
+  label: String(m).padStart(2, '0'),
+}));
+
+function parseInitialDeadline(deadline?: string): { date: string; hour: string; minute: string } {
+  if (!deadline) {
+    // Default: tomorrow at 17:00
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const y = tomorrow.getFullYear();
+    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const d = String(tomorrow.getDate()).padStart(2, '0');
+    return { date: `${y}-${m}-${d}`, hour: '17', minute: '00' };
+  }
+  const dt = new Date(deadline);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  const h = String(dt.getHours()).padStart(2, '0');
+  const min = String(Math.floor(dt.getMinutes() / 15) * 15).padStart(2, '0');
+  return { date: `${y}-${m}-${d}`, hour: h, minute: min };
+}
+
+function parseInitialEstimate(minutes: number | undefined, workdayMin: number): { days: string; hours: string; mins: string } {
+  const total = minutes || 60;
+  const days = Math.floor(total / workdayMin);
+  const remaining = total - days * workdayMin;
+  return {
+    days: String(days),
+    hours: String(Math.floor(remaining / 60)),
+    mins: String(remaining % 60),
+  };
+}
+
+export interface TaskFormHandle {
+  submit: () => void;
+}
+
+export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
+  { initialTask, defaultDeadline, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps,
+  ref
+) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
-  const [estimatedMin, setEstimatedMin] = useState(String(initialTask?.estimated_min || 60));
-  const [deadline, setDeadline] = useState(
-    initialTask?.deadline ? new Date(initialTask.deadline).toISOString().slice(0, 16) : ''
-  );
+
+  const initEst = parseInitialEstimate(initialTask?.estimated_min, workdayMin);
+  const [estDays, setEstDays] = useState(initEst.days);
+  const [estHours, setEstHours] = useState(initEst.hours);
+  const [estMins, setEstMins] = useState(initEst.mins);
+
+  const hasNoDeadline = initialTask ? initialTask.deadline === null : true;
+  const initDl = parseInitialDeadline(initialTask?.deadline || defaultDeadline || undefined);
+  const [noDeadline, setNoDeadline] = useState(hasNoDeadline);
+  const [dlDate, setDlDate] = useState(initDl.date);
+  const [dlHour, setDlHour] = useState(initDl.hour);
+  const [dlMinute, setDlMinute] = useState(initDl.minute);
+
   const [priority, setPriority] = useState<Priority>(initialTask?.priority || 'Medium');
   const [completed, setCompleted] = useState(initialTask?.completed || false);
   const [notes, setNotes] = useState<PersonNoteEntry[]>(
@@ -41,14 +117,46 @@ export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: Task
     })) || []
   );
 
+  const totalEstimatedMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
+
+  useImperativeHandle(ref, () => ({
+    submit() {
+      if (!title.trim() || (!noDeadline && !dlDate)) return;
+      let deadline: string | null = null;
+      if (!noDeadline) {
+        const [y, m, d] = dlDate.split('-').map(Number);
+        deadline = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute)).toISOString();
+      }
+      const totalMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
+      onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        estimated_min: totalMin || 15,
+        deadline,
+        priority,
+        completed,
+        people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
+      });
+    },
+  }), [title, description, noDeadline, dlDate, dlHour, dlMinute, estDays, estHours, estMins, priority, completed, notes, onSubmit]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !deadline) return;
+    if (!title.trim()) return;
+    if (!noDeadline && !dlDate) return;
+
+    let deadline: string | null = null;
+    if (!noDeadline) {
+      const [y, m, d] = dlDate.split('-').map(Number);
+      const deadlineDate = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute));
+      deadline = deadlineDate.toISOString();
+    }
+
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      estimated_min: parseInt(estimatedMin) || 60,
-      deadline: new Date(deadline).toISOString(),
+      estimated_min: totalEstimatedMin || 15,
+      deadline,
       priority,
       completed,
       people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
@@ -77,23 +185,73 @@ export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: Task
             placeholder:text-gray-400 resize-none"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Input
-          label="Estimated Minutes"
-          type="number"
-          min={15}
-          step={15}
-          value={estimatedMin}
-          onChange={(e) => setEstimatedMin(e.target.value)}
-        />
-        <Input
-          label="Deadline"
-          type="datetime-local"
-          value={deadline}
-          onChange={(e) => setDeadline(e.target.value)}
-          required
-        />
+
+      {/* Estimated Time */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Estimated Time</label>
+        <div className="grid grid-cols-3 gap-2">
+          <Select
+            value={estDays}
+            onChange={(e) => setEstDays(e.target.value)}
+            options={dayOptions}
+          />
+          <Select
+            value={estHours}
+            onChange={(e) => setEstHours(e.target.value)}
+            options={hourOptions}
+          />
+          <Select
+            value={estMins}
+            onChange={(e) => setEstMins(e.target.value)}
+            options={minuteOptions}
+          />
+        </div>
+        {totalEstimatedMin > 0 && (
+          <span className="text-xs text-gray-400 mt-0.5">
+            {[
+              parseInt(estDays) > 0 ? `${estDays}d` : '',
+              parseInt(estHours) > 0 ? `${estHours}h` : '',
+              parseInt(estMins) > 0 ? `${estMins}m` : '',
+            ].filter(Boolean).join(' ')}
+          </span>
+        )}
       </div>
+
+      {/* Deadline */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Deadline</label>
+          <label className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={noDeadline}
+              onChange={(e) => setNoDeadline(e.target.checked)}
+              className="rounded"
+            />
+            No deadline
+          </label>
+        </div>
+        {!noDeadline && (
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <Input
+              type="date"
+              value={dlDate}
+              onChange={(e) => setDlDate(e.target.value)}
+            />
+            <Select
+              value={dlHour}
+              onChange={(e) => setDlHour(e.target.value)}
+              options={clockHourOptions}
+            />
+            <Select
+              value={dlMinute}
+              onChange={(e) => setDlMinute(e.target.value)}
+              options={clockMinuteOptions}
+            />
+          </div>
+        )}
+      </div>
+
       <Select
         label="Priority"
         value={priority}
@@ -116,14 +274,25 @@ export function TaskForm({ initialTask, onSubmit, onCancel, isSubmitting }: Task
         </label>
       )}
       <PersonNoteInput notes={notes} onChange={setNotes} />
-      <div className="flex gap-2 justify-end pt-2">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isSubmitting || !title.trim() || !deadline}>
-          {initialTask ? 'Update Task' : 'Create Task'}
-        </Button>
+      <div className="flex gap-2 justify-between pt-2">
+        {onDelete ? (
+          <Button type="button" variant="danger" onClick={onDelete}>
+            Delete
+          </Button>
+        ) : (
+          <div />
+        )}
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+          {!initialTask && (
+            <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
+              Create Task
+            </Button>
+          )}
+        </div>
       </div>
     </form>
   );
-}
+});

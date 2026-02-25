@@ -3,12 +3,14 @@ export interface Task {
   title: string;
   description: string;
   estimated_min: number;
-  deadline: string;
+  deadline: string | null;
   priority: 'Low' | 'Medium' | 'High';
   completed: boolean;
   created_at: string;
   updated_at: string;
   people_notes?: PersonNote[];
+  split_group_id?: string | null;
+  split_index?: number | null;
 }
 
 export interface PersonNote {
@@ -24,6 +26,7 @@ export interface ScheduleSlot {
   task_id: string;
   start_time: string;
   end_time: string;
+  locked: boolean;
   task?: Task;
 }
 
@@ -35,6 +38,10 @@ export interface Settings {
   include_sunday: boolean;
   theme: 'light' | 'dark';
   accent_color: string;
+  auto_split_tasks: boolean;
+  scheduler_active: boolean;
+  lunch_start: string;
+  lunch_end: string;
 }
 
 export type Priority = 'Low' | 'Medium' | 'High';
