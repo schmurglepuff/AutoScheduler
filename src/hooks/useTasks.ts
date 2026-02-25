@@ -90,11 +90,13 @@ export function useTasks() {
 
   const deleteTask = useMutation({
     mutationFn: async (id: string) => {
+      await supabase.from('schedule_slots').delete().eq('task_id', id);
       const { error } = await supabase.from('tasks').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
     },
   });
 

@@ -43,7 +43,13 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
   const pStyle = priorityStyle[priority] || priorityStyle.Medium;
   const start = new Date(slot.start_time);
   const end = new Date(slot.end_time);
-  const isOverDeadline = !!slot.task?.deadline && end > new Date(slot.task.deadline);
+  const now = new Date();
+  const deadlineDate = slot.task?.deadline ? new Date(slot.task.deadline) : null;
+  // Overdue when: not completed AND this block's time is at least partially in the past
+  // Applies to ALL tasks (with or without deadline) — if the time has passed and it's not done, it's overdue
+  const isOverdue = !slot.task?.completed && now > start;
+  // How much of this block has elapsed: 100% if fully past, partial if current time is within the block
+  const overduePercent = isOverdue ? (now >= end ? 100 : ((now.getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100) : 0;
 
   // Check if the slot starts at or after work_day_end
   let isOutsideWorkHours = false;
@@ -64,7 +70,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} transition-all
         ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500 bg-stripes' : ''}
-        ${isOverDeadline && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
+        ${isOverdue && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
         ${isDragging ? 'opacity-30' : ''}
         ${isDragOverlay ? 'shadow-lg rotate-1 opacity-90' : ''}`}
       style={{
@@ -78,32 +84,23 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         if ((e.target as Element).closest('button')) return;
         if (!isDragging) onClick?.(slot);
       }}
-      title={`${slot.task?.title || 'Task'}\n${formatTime(start)} – ${formatTime(end)}${isOverDeadline ? `\n⚠ Ends past deadline (${formatTime(new Date(slot.task!.deadline!))})` : ''}`}
+      title={`${slot.task?.title || 'Task'}\n${formatTime(start)} – ${formatTime(end)}${isOverdue && deadlineDate ? `\n⚠ Ends past deadline (${formatTime(deadlineDate)})` : isOverdue ? '\n⚠ Overdue' : ''}`}
     >
-      {/* Red stripe overlay for slots placed past their deadline */}
-      {isOverDeadline && !isDragOverlay && (
+      {/* Red wash overlay for overdue blocks — partial or full based on elapsed time */}
+      {isOverdue && !isLocked && !isDragOverlay && (
         <div
-          className="absolute inset-0 pointer-events-none flex items-center justify-center rounded-md overflow-hidden"
-          style={{
-            backgroundImage:
-              'repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(239,68,68,0.22) 4px, rgba(239,68,68,0.22) 8px)',
-          }}
+          className="absolute top-0 left-0 right-0 bg-red-500/20 dark:bg-red-500/30 rounded-md z-[1] pointer-events-none flex items-center justify-center"
+          style={{ height: `${overduePercent}%` }}
         >
-          <svg className="w-5 h-5 text-red-600 dark:text-red-400 drop-shadow" viewBox="0 0 24 24" fill="currentColor">
+          <svg className="w-5 h-5 text-red-500 dark:text-red-400 opacity-70" viewBox="0 0 24 24" fill="currentColor">
             <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
           </svg>
         </div>
       )}
 
-      {/* Vertical red-line overlay for slots placed outside work hours */}
+      {/* Gray wash overlay for slots placed outside work hours */}
       {isOutsideWorkHours && !isDragOverlay && (
-        <div
-          className="absolute inset-0 pointer-events-none rounded-md overflow-hidden"
-          style={{
-            backgroundImage:
-              'repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(239,68,68,0.18) 3px, rgba(239,68,68,0.18) 5px)',
-          }}
-        />
+        <div className="absolute inset-0 bg-gray-500/15 dark:bg-gray-500/20 rounded-md z-[1] pointer-events-none" />
       )}
 
       {/* Lock toggle button */}
@@ -154,7 +151,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         </button>
       )}
       <div className={`text-xs font-medium leading-tight ${pStyle.text} flex items-center gap-1`}>
-        {isOverDeadline && (
+        {isOverdue && (
           <svg className="w-3 h-3 flex-shrink-0 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="currentColor">
             <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
           </svg>
