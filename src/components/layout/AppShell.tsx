@@ -30,20 +30,6 @@ export function AppShell() {
 
   const handleMoveSlot = (id: string, startTime: string, endTime: string) => {
     moveSlot.mutate({ id, start_time: startTime, end_time: endTime });
-
-    // Update the task's deadline to the end of the dropped day
-    const slot = slots.find((s) => s.id === id);
-    if (slot?.task_id) {
-      const dropDate = new Date(endTime);
-      const existingTask = tasks.find((t) => t.id === slot.task_id);
-      if (existingTask && existingTask.deadline) {
-        // Preserve the existing deadline time-of-day, just change the date
-        const oldDeadline = new Date(existingTask.deadline);
-        const newDeadline = new Date(dropDate);
-        newDeadline.setHours(oldDeadline.getHours(), oldDeadline.getMinutes(), 0, 0);
-        updateTask.mutate({ id: slot.task_id, deadline: newDeadline.toISOString() });
-      }
-    }
   };
 
   const handleToggleLock = (slot: ScheduleSlot) => {
