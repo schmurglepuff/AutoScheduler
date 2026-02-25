@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { TaskList } from '../tasks/TaskList';
 import { WeeklyCalendar } from '../calendar/WeeklyCalendar';
 import { SettingsPanel } from '../settings/SettingsPanel';
+import { HotkeysPanel } from '../settings/HotkeysPanel';
 import { TaskForm, type TaskFormHandle } from '../tasks/TaskForm';
 import { Modal } from '../ui/Modal';
 import { useSettings } from '../../hooks/useSettings';
@@ -234,6 +235,7 @@ export function AppShell() {
               onSchedulerActivated={() => regenerate.mutate()}
             />
           )}
+          {currentView === 'hotkeys' && <HotkeysPanel />}
         </main>
       </div>
 
