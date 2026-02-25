@@ -138,6 +138,108 @@ export function useSchedule(tasks: Task[], settings: Settings) {
       // 5. Generate schedule with the final task list
       const newSlots = generateSchedule(currentTasks, settings, locked);
 
+      // 5b. Split tasks whose slots span multiple days into separate task records
+      const slotsByTaskId = new Map<string, typeof newSlots[number][]>();
+      for (const slot of newSlots) {
+        const arr = slotsByTaskId.get(slot.task_id) || [];
+        arr.push(slot);
+        slotsByTaskId.set(slot.task_id, arr);
+      }
+
+      const slotDayKey = (iso: string) => {
+        const d = new Date(iso);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+
+      for (const [taskId, taskSlots] of slotsByTaskId) {
+        const days = new Set(taskSlots.map((s) => slotDayKey(s.start_time)));
+        if (days.size <= 1) continue;
+
+        const task = currentTasks.find((t) => t.id === taskId);
+        if (!task || task.completed) continue;
+
+        // Group this task's slots by calendar day
+        const slotsByDay = new Map<string, typeof taskSlots>();
+        for (const slot of taskSlots) {
+          const dk = slotDayKey(slot.start_time);
+          const arr = slotsByDay.get(dk) || [];
+          arr.push(slot);
+          slotsByDay.set(dk, arr);
+        }
+
+        const baseTitle = task.title.replace(/\s\d+\/\d+$/, '');
+        const groupId = task.split_group_id || crypto.randomUUID();
+        const origIndex = task.split_index ?? 1;
+        const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
+
+        // Delete original task from DB (slots haven't been inserted yet)
+        await supabase.from('schedule_slots').delete().eq('task_id', taskId);
+        await supabase.from('tasks').delete().eq('id', taskId);
+
+        // Create a new task for each day's portion
+        const sortedDays = [...slotsByDay.keys()].sort();
+        const createdTasks: Task[] = [];
+
+        for (const day of sortedDays) {
+          const daySlots = slotsByDay.get(day)!;
+          const dayMin = daySlots.reduce(
+            (sum, s) => sum + (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / (1000 * 60),
+            0
+          );
+
+          const { data: created, error: insErr } = await supabase
+            .from('tasks')
+            .insert({
+              title: baseTitle,
+              description: task.description ?? '',
+              estimated_min: dayMin,
+              deadline: task.deadline,
+              priority: task.priority,
+              completed: false,
+              split_group_id: groupId,
+              split_index: 0,
+            })
+            .select()
+            .single();
+          if (insErr) throw insErr;
+
+          if (notes.length > 0) {
+            await supabase.from('people_notes').insert(
+              notes.map((n) => ({ task_id: created.id, person_name: n.person_name, note_text: n.note_text }))
+            );
+          }
+
+          // Reassign the pending slot entries to the new task
+          for (const slot of daySlots) {
+            slot.task_id = created.id;
+          }
+
+          createdTasks.push({ ...created, people_notes: notes } as Task);
+        }
+
+        // Update currentTasks: remove original, add day-parts
+        currentTasks = [...currentTasks.filter((t) => t.id !== taskId), ...createdTasks];
+
+        // Renumber the entire split group — new day-parts sit where original task was
+        const allGroupMembers = currentTasks.filter((t) => t.split_group_id === groupId);
+        allGroupMembers.sort((a, b) => {
+          const aIsNew = createdTasks.some((ct) => ct.id === a.id);
+          const bIsNew = createdTasks.some((ct) => ct.id === b.id);
+          const aSort = aIsNew ? origIndex + createdTasks.findIndex((ct) => ct.id === a.id) * 0.01 : (a.split_index ?? 0);
+          const bSort = bIsNew ? origIndex + createdTasks.findIndex((ct) => ct.id === b.id) * 0.01 : (b.split_index ?? 0);
+          return aSort - bSort;
+        });
+
+        const totalN = allGroupMembers.length;
+        for (let i = 0; i < allGroupMembers.length; i++) {
+          const member = allGroupMembers[i];
+          const newTitle = `${baseTitle} ${i + 1}/${totalN}`;
+          await supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
+          member.title = newTitle;
+          member.split_index = i + 1;
+        }
+      }
+
       // 6. Delete unlocked future slots
       await supabase
         .from('schedule_slots')

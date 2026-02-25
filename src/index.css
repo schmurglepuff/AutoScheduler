@@ -34,6 +34,14 @@ body {
   );
 }
 
+.scheduled-block {
+  border-left-color: transparent !important;
+}
+
+.scheduled-block:hover {
+  border-left-color: var(--block-border-color) !important;
+}
+
 :where(.dark) .bg-stripes {
   background-image: repeating-linear-gradient(
     -45deg,

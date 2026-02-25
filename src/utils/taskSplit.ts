@@ -28,8 +28,8 @@ export function shouldSplitTask(estimatedMin: number, workdayMin: number): boole
 }
 
 /**
- * Splits a large task into n smaller tasks, each at most half a workday (~4h for 8h day).
- * Minimum chunk size is 4 hours (240 min).
+ * Splits a large task into n smaller tasks, each at most 5 hours (300 min).
+ * Minimum chunk size is 1 hour (60 min).
  * All parts share the same priority, deadline, description, and people_notes.
  * The sum of all parts' estimated_min equals the original estimated_min.
  * Titles are suffixed " 1/n", " 2/n", etc.
@@ -39,7 +39,7 @@ export function splitTaskData(
   workdayMin: number
 ): SplittableTaskData[] {
   const total = data.estimated_min;
-  const chunkTarget = Math.max(Math.floor(workdayMin / 2), 60);
+  const chunkTarget = 300; // 5 hours max per chunk
   const n = Math.max(2, Math.ceil(total / chunkTarget));
   // Round base chunk down to whole hours so parts display cleanly in the form
   // (minute dropdown only has 0/15/30/45; input totals are always multiples of 15,
@@ -48,7 +48,7 @@ export function splitTaskData(
   const groupId = crypto.randomUUID();
 
   return Array.from({ length: n }, (_, i) => {
-    const partMin = i === 0 ? total - baseMin * (n - 1) : baseMin;
+    const partMin = i === n - 1 ? total - baseMin * (n - 1) : baseMin;
     return {
       title: `${data.title} ${i + 1}/${n}`,
       description: data.description,

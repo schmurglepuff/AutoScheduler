@@ -73,19 +73,27 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
 
   const { hours: startHour } = parseTimeString(settings.work_day_start);
   const { hours: endHour } = parseTimeString(settings.work_day_end);
-  const hours = getHoursArray(startHour, endHour);
+
+  // Expand hours array if any slot extends past work_day_end
+  const latestSlotHour = useMemo(() => {
+    let latest = endHour;
+    for (const slot of slots) {
+      const slotEnd = new Date(slot.end_time);
+      const h = slotEnd.getHours() + (slotEnd.getMinutes() > 0 ? 1 : 0);
+      if (h > latest) latest = h;
+    }
+    return Math.min(latest, 24); // cap at midnight
+  }, [slots, endHour]);
+
+  const hours = getHoursArray(startHour, latestSlotHour);
 
   const days = useMemo(() => {
     const result: Date[] = [];
     for (let i = 0; i < 7; i++) {
-      const d = addDays(weekStart, i);
-      const dayOfWeek = d.getDay();
-      if (dayOfWeek === 0 && !settings.include_sunday) continue;
-      if (dayOfWeek === 6 && !settings.include_saturday) continue;
-      result.push(d);
+      result.push(addDays(weekStart, i));
     }
     return result;
-  }, [weekStart, settings.include_saturday, settings.include_sunday]);
+  }, [weekStart]);
 
   const visibleSlots = useMemo(() => {
     if (viewMode === 'week') {
@@ -334,6 +342,9 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                   onToggleComplete={onToggleComplete}
                   onCreateTask={onCreateTask}
                   overCellId={overCellId}
+                  workDayEnd={settings.work_day_end}
+                  lunchStart={settings.lunch_start}
+                  lunchEnd={settings.lunch_end}
                 />
               ))}
             </div>

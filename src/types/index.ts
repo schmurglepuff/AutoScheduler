@@ -39,6 +39,9 @@ export interface Settings {
   theme: 'light' | 'dark';
   accent_color: string;
   auto_split_tasks: boolean;
+  scheduler_active: boolean;
+  lunch_start: string;
+  lunch_end: string;
 }
 
 export type Priority = 'Low' | 'Medium' | 'High';

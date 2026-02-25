@@ -75,25 +75,40 @@ export function AppShell() {
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
   }) => {
-    const tasksToCreate =
-      settings.auto_split_tasks && shouldSplitTask(data.estimated_min, workdayMin)
-        ? splitTaskData(data, workdayMin)
-        : [data];
-
-    const isSplit = tasksToCreate.length > 1;
+    const tasksToCreate = shouldSplitTask(data.estimated_min, workdayMin)
+      ? splitTaskData(data, workdayMin)
+      : [data];
 
     const createSequentially = async () => {
       try {
-        for (let i = 0; i < tasksToCreate.length; i++) {
-          const newTask = await createTask.mutateAsync(tasksToCreate[i]);
-          if (!isSplit && i === 0 && creatingAtTime && newTask) {
-            const start = new Date(creatingAtTime);
-            const end = new Date(start.getTime() + tasksToCreate[0].estimated_min * 60 * 1000);
+        const createdTasks: Task[] = [];
+        for (const t of tasksToCreate) {
+          const newTask = await createTask.mutateAsync(t);
+          if (newTask) createdTasks.push(newTask as Task);
+        }
+
+        if (settings.scheduler_active) {
+          // Active mode: auto-schedule all tasks
+          regenerate.mutate();
+        } else {
+          // Inactive mode: place back-to-back starting at click time or next whole hour
+          let cursor: Date;
+          if (creatingAtTime) {
+            cursor = new Date(creatingAtTime);
+          } else {
+            cursor = new Date();
+            cursor.setMinutes(0, 0, 0);
+            cursor.setHours(cursor.getHours() + 1);
+          }
+
+          for (const task of createdTasks) {
+            const end = new Date(cursor.getTime() + task.estimated_min * 60 * 1000);
             addSlot.mutate({
-              task_id: newTask.id,
-              start_time: start.toISOString(),
+              task_id: task.id,
+              start_time: cursor.toISOString(),
               end_time: end.toISOString(),
             });
+            cursor = end;
           }
         }
       } catch (err) {
@@ -121,11 +136,16 @@ export function AppShell() {
     people_notes: { person_name: string; note_text: string }[];
   }) => {
     if (!editingTask) return;
+    const timeChanged = data.estimated_min !== editingTask.estimated_min;
+    const deadlineChanged = (data.deadline ?? '') !== (editingTask.deadline ?? '')
+      && new Date(data.deadline ?? 0).getTime() !== new Date(editingTask.deadline ?? 0).getTime();
     updateTask.mutate(
       { id: editingTask.id, ...data },
       {
         onSuccess: () => {
-          if (data.estimated_min !== editingTask.estimated_min) {
+          if (settings.scheduler_active && (timeChanged || deadlineChanged)) {
+            regenerate.mutate();
+          } else if (timeChanged) {
             resizeTaskSlots.mutate({
               task_id: editingTask.id,
               estimated_min: data.estimated_min,
@@ -196,12 +216,36 @@ export function AppShell() {
               />
             </div>
           )}
-          {currentView === 'tasks' && <TaskList settings={settings} />}
+          {currentView === 'tasks' && (
+            <TaskList
+              settings={settings}
+              schedulerActive={settings.scheduler_active}
+              onTasksCreated={(created) => {
+                if (settings.scheduler_active) {
+                  regenerate.mutate();
+                } else {
+                  const start = new Date();
+                  start.setMinutes(0, 0, 0);
+                  start.setHours(start.getHours() + 1);
+                  let cursor = start;
+                  for (const t of created) {
+                    const end = new Date(cursor.getTime() + t.estimated_min * 60 * 1000);
+                    addSlot.mutate({
+                      task_id: t.id,
+                      start_time: cursor.toISOString(),
+                      end_time: end.toISOString(),
+                    });
+                    cursor = end;
+                  }
+                }
+              }}
+            />
+          )}
           {currentView === 'settings' && (
             <SettingsPanel
               settings={settings}
               onSave={(updates) => updateSettings.mutate(updates)}
-              isSaving={updateSettings.isPending}
+              onSchedulerActivated={() => regenerate.mutate()}
             />
           )}
         </main>

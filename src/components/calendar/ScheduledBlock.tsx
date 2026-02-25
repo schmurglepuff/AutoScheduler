@@ -2,20 +2,20 @@ import { useDraggable } from '@dnd-kit/core';
 import type { ScheduleSlot } from '../../types';
 import { formatTime } from '../../utils/dateHelpers';
 
-const priorityStyle: Record<string, { bg: string; border: string; text: string }> = {
+const priorityStyle: Record<string, { bg: string; borderColor: string; text: string }> = {
   High: {
     bg: 'bg-red-50 dark:bg-red-950/40',
-    border: 'border-l-red-400 dark:border-l-red-500',
+    borderColor: '#f87171',
     text: 'text-red-900 dark:text-red-200',
   },
   Medium: {
     bg: 'bg-amber-50 dark:bg-amber-950/40',
-    border: 'border-l-amber-400 dark:border-l-amber-500',
+    borderColor: '#fbbf24',
     text: 'text-amber-900 dark:text-amber-200',
   },
   Low: {
     bg: 'bg-emerald-50 dark:bg-emerald-950/40',
-    border: 'border-l-emerald-400 dark:border-l-emerald-500',
+    borderColor: '#34d399',
     text: 'text-emerald-900 dark:text-emerald-200',
   },
 };
@@ -28,9 +28,10 @@ interface ScheduledBlockProps {
   onToggleLock?: (slot: ScheduleSlot) => void;
   onToggleComplete?: (slot: ScheduleSlot) => void;
   isDragOverlay?: boolean;
+  workDayEnd?: string;
 }
 
-export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onToggleLock, onToggleComplete, isDragOverlay }: ScheduledBlockProps) {
+export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onToggleLock, onToggleComplete, isDragOverlay, workDayEnd }: ScheduledBlockProps) {
   const isLocked = !!slot.locked;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `slot-${slot.id}`,
@@ -44,23 +45,35 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
   const end = new Date(slot.end_time);
   const isOverDeadline = !!slot.task?.deadline && end > new Date(slot.task.deadline);
 
+  // Check if the slot starts at or after work_day_end
+  let isOutsideWorkHours = false;
+  if (workDayEnd) {
+    const [endH, endM] = workDayEnd.split(':').map(Number);
+    const workEnd = new Date(start);
+    workEnd.setHours(endH, endM, 0, 0);
+    isOutsideWorkHours = start >= workEnd;
+  }
+
   const dragProps = isLocked || isDragOverlay ? {} : { ...attributes, ...listeners };
 
   return (
     <div
       ref={isDragOverlay ? undefined : setNodeRef}
       {...dragProps}
-      className={`group ${isDragOverlay ? '' : 'absolute'} left-1 right-1 rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
+      className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} left-1 right-1 rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
-        ${pStyle.bg} ${pStyle.border} hover:brightness-95 dark:hover:brightness-110 transition-all
+        ${pStyle.bg} transition-all
         ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500 bg-stripes' : ''}
         ${isOverDeadline && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
         ${isDragging ? 'opacity-30' : ''}
         ${isDragOverlay ? 'shadow-lg rotate-1 opacity-90' : ''}`}
-      style={isDragOverlay ? {} : {
-        top: `${topPercent}%`,
-        height: `${Math.max(heightPercent, 4)}%`,
-      }}
+      style={{
+        ...(!isDragOverlay ? {
+          top: `${topPercent}%`,
+          height: `${Math.max(heightPercent, 4)}%`,
+        } : {}),
+        '--block-border-color': pStyle.borderColor,
+      } as React.CSSProperties}
       onClick={(e) => {
         if ((e.target as Element).closest('button')) return;
         if (!isDragging) onClick?.(slot);
@@ -80,6 +93,17 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
             <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
           </svg>
         </div>
+      )}
+
+      {/* Vertical red-line overlay for slots placed outside work hours */}
+      {isOutsideWorkHours && !isDragOverlay && (
+        <div
+          className="absolute inset-0 pointer-events-none rounded-md overflow-hidden"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(239,68,68,0.18) 3px, rgba(239,68,68,0.18) 5px)',
+          }}
+        />
       )}
 
       {/* Lock toggle button */}

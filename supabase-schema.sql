@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS settings (
   include_sunday boolean DEFAULT false,
   theme text DEFAULT 'light',
   accent_color text DEFAULT '#3b82f6',
-  auto_split_tasks boolean DEFAULT false
+  auto_split_tasks boolean DEFAULT false,
+  scheduler_active boolean DEFAULT false,
+  lunch_start text DEFAULT '12:00',
+  lunch_end text DEFAULT '13:00'
 );
 
 -- Seed the singleton settings row
@@ -65,6 +68,9 @@ CREATE POLICY "Allow all on settings" ON settings FOR ALL USING (true) WITH CHEC
 -- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_group_id uuid NULL;
 -- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_index integer NULL;
 -- ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_split_tasks boolean NOT NULL DEFAULT false;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS scheduler_active boolean NOT NULL DEFAULT false;
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS lunch_start text NOT NULL DEFAULT '12:00';
+-- ALTER TABLE settings ADD COLUMN IF NOT EXISTS lunch_end text NOT NULL DEFAULT '13:00';
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_people_notes_task_id ON people_notes(task_id);

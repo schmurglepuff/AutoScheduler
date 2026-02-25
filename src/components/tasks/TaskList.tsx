@@ -30,7 +30,13 @@ interface TaskFormData {
   people_notes: { person_name: string; note_text: string }[];
 }
 
-export function TaskList({ settings }: { settings: Settings }) {
+interface TaskListProps {
+  settings: Settings;
+  schedulerActive?: boolean;
+  onTasksCreated?: (tasks: Task[]) => void;
+}
+
+export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskListProps) {
   const { tasks, isLoading, createTask, updateTask, deleteTask } = useTasks();
   const [showForm, setShowForm] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -56,15 +62,17 @@ export function TaskList({ settings }: { settings: Settings }) {
 
   const handleCreate = async (data: TaskFormData) => {
     const workdayMin = getWorkdayMin(settings);
-    const tasksToCreate =
-      settings.auto_split_tasks && shouldSplitTask(data.estimated_min, workdayMin)
-        ? splitTaskData(data, workdayMin)
-        : [data];
+    const tasksToCreate = shouldSplitTask(data.estimated_min, workdayMin)
+      ? splitTaskData(data, workdayMin)
+      : [data];
 
     try {
+      const createdTasks: Task[] = [];
       for (const t of tasksToCreate) {
-        await createTask.mutateAsync(t);
+        const newTask = await createTask.mutateAsync(t);
+        if (newTask) createdTasks.push(newTask as Task);
       }
+      onTasksCreated?.(createdTasks);
       setShowForm(false);
     } catch (err) {
       console.error('Failed to create task(s):', err);

@@ -12,9 +12,12 @@ interface DayColumnProps {
   onToggleComplete?: (slot: ScheduleSlot) => void;
   onCreateTask?: (startTime: Date) => void;
   overCellId: string | null;
+  workDayEnd?: string;
+  lunchStart?: string;
+  lunchEnd?: string;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId }: DayColumnProps) {
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -80,6 +83,24 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
       </div>
       {/* Time grid with droppable half-hour cells */}
       <div className="relative overflow-hidden">
+        {/* Lunch band */}
+        {lunchStart && lunchEnd && (() => {
+          const [lsH, lsM] = lunchStart.split(':').map(Number);
+          const [leH, leM] = lunchEnd.split(':').map(Number);
+          const lunchStartOffset = lsH + lsM / 60 - startHour;
+          const lunchDuration = (leH + leM / 60) - (lsH + lsM / 60);
+          const lunchTop = (lunchStartOffset / totalHours) * 100;
+          const lunchHeight = (lunchDuration / totalHours) * 100;
+          if (lunchTop >= 100 || lunchTop + lunchHeight <= 0) return null;
+          const clampedTop = Math.max(0, lunchTop);
+          const clampedHeight = Math.min(100 - clampedTop, lunchHeight - (clampedTop - lunchTop));
+          return (
+            <div
+              className="absolute inset-x-0 bg-gray-100 dark:bg-gray-800/50 border-y border-dashed border-gray-300 dark:border-gray-600 z-[1] pointer-events-none"
+              style={{ top: `${clampedTop}%`, height: `${clampedHeight}%` }}
+            />
+          );
+        })()}
         {cells.map((cell) => {
           const cellStart = new Date(date);
           cellStart.setHours(cell.hour, cell.min, 0, 0);
@@ -117,6 +138,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
               onClick={onSlotClick}
               onToggleLock={onToggleLock}
               onToggleComplete={onToggleComplete}
+              workDayEnd={workDayEnd}
             />
           );
         })}
