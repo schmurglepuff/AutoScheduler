@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { ScheduleSlot } from '../../types';
 import { formatTime } from '../../utils/dateHelpers';
@@ -63,11 +64,49 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
   }
 
   const dragProps = isLocked || isDragOverlay ? {} : { ...attributes, ...listeners };
+  const hoveredRef = useRef(false);
+  const toggledRef = useRef(false);
+  const lHeldRef = useRef(false);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.key === 'l' || e.key === 'L') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      lHeldRef.current = true;
+      if (hoveredRef.current && !toggledRef.current) {
+        toggledRef.current = true;
+        onToggleLock?.(slot);
+      }
+    }
+  }, [slot, onToggleLock]);
+
+  const handleKeyUp = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'l' || e.key === 'L') {
+      lHeldRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDragOverlay) return;
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [handleKeyDown, handleKeyUp, isDragOverlay]);
 
   return (
     <div
       ref={isDragOverlay ? undefined : setNodeRef}
       {...dragProps}
+      onMouseEnter={() => {
+        hoveredRef.current = true;
+        toggledRef.current = false;
+        if (lHeldRef.current && !toggledRef.current) {
+          toggledRef.current = true;
+          onToggleLock?.(slot);
+        }
+      }}
+      onMouseLeave={() => { hoveredRef.current = false; toggledRef.current = false; }}
       className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} left-1 right-1 rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} transition-all

@@ -12,7 +12,7 @@ import {
 } from '@dnd-kit/core';
 import type { ReactNode } from 'react';
 import type { ScheduleSlot, Settings } from '../../types';
-import { startOfWeek, startOfMonth, addDays, getHoursArray, parseTimeString, isSameDay } from '../../utils/dateHelpers';
+import { startOfWeek, startOfMonth, addDays, getHoursArray, parseTimeString, isSameDay, getCalendarGrid } from '../../utils/dateHelpers';
 import { WeekNavigator } from './WeekNavigator';
 import { DayColumn } from './DayColumn';
 import { ScheduledBlock } from './ScheduledBlock';
@@ -110,9 +110,13 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
         return dayKeys.has(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
       });
     }
+    const monthGrid = getCalendarGrid(monthDate.getFullYear(), monthDate.getMonth());
+    const gridStart = monthGrid[0];
+    const gridEnd = new Date(monthGrid[monthGrid.length - 1]);
+    gridEnd.setHours(23, 59, 59, 999);
     return slots.filter((s) => {
       const d = new Date(s.start_time);
-      return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+      return d >= gridStart && d <= gridEnd;
     });
   }, [slots, viewMode, days, monthDate]);
 
