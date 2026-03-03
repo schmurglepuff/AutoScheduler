@@ -12,9 +12,11 @@ interface TaskCardProps {
   onDragSelectStart?: (id: string) => void;
   onDragSelectEnter?: (id: string) => void;
   onToggleSelect?: (id: string) => void;
+  isEditing?: boolean;
+  editingContent?: React.ReactNode;
 }
 
-export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter, onToggleSelect }: TaskCardProps) {
+export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter, onToggleSelect, isEditing, editingContent }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { task },
@@ -59,6 +61,19 @@ export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSele
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [handleKeyDown, handleKeyUp]);
+
+  if (isEditing) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        data-task-card
+        {...attributes}
+      >
+        {editingContent}
+      </div>
+    );
+  }
 
   return (
     <div

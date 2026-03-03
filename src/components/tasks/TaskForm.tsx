@@ -286,11 +286,9 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          {!initialTask && (
-            <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
-              Create Task
-            </Button>
-          )}
+          <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
+            {initialTask ? 'Save' : 'Create Task'}
+          </Button>
         </div>
       </div>
     </form>

@@ -15,8 +15,8 @@ import { useDroppable } from '@dnd-kit/core';
 import type { Task, Priority, Settings } from '../../types';
 import { shouldSplitTask, splitTaskData, getWorkdayMin } from '../../utils/taskSplit';
 import { TaskCard } from './TaskCard';
-import { TaskForm, type TaskFormHandle } from './TaskForm';
-import { Modal } from '../ui/Modal';
+import { InlineTaskCreator } from './InlineTaskCreator';
+import { InlineTaskEditor } from './InlineTaskEditor';
 import { Button } from '../ui/Button';
 import { useTasks } from '../../hooks/useTasks';
 
@@ -36,11 +36,10 @@ interface TaskListProps {
   onTasksCreated?: (tasks: Task[]) => void;
 }
 
-export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskListProps) {
+export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksCreated }: TaskListProps) {
   const { tasks, isLoading, createTask, updateTask, deleteTask } = useTasks();
-  const [showForm, setShowForm] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const editFormRef = useRef<TaskFormHandle>(null);
+  const [showInlineCreator, setShowInlineCreator] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [overdueOpen, setOverdueOpen] = useState(true);
   const [doneOpen, setDoneOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -60,8 +59,9 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
     (t) => !t.completed && (t.deadline === null || new Date(t.deadline) >= now) && matches(t)
   );
 
+  const workdayMin = getWorkdayMin(settings);
+
   const handleCreate = async (data: TaskFormData) => {
-    const workdayMin = getWorkdayMin(settings);
     const tasksToCreate = shouldSplitTask(data.estimated_min, workdayMin)
       ? splitTaskData(data, workdayMin)
       : [data];
@@ -73,28 +73,34 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
         if (newTask) createdTasks.push(newTask as Task);
       }
       onTasksCreated?.(createdTasks);
-      setShowForm(false);
+      setShowInlineCreator(false);
     } catch (err) {
       console.error('Failed to create task(s):', err);
     }
   };
 
   const handleUpdate = (data: TaskFormData) => {
-    if (!editingTask) return;
-    updateTask.mutate({ id: editingTask.id, ...data });
-  };
-
-  const handleEditModalClose = () => {
-    editFormRef.current?.submit();
-    setEditingTask(null);
+    if (!editingTaskId) return;
+    updateTask.mutate({ id: editingTaskId, ...data });
+    setEditingTaskId(null);
   };
 
   const handleDelete = (id: string) => {
     if (confirm('Delete this task?')) {
       deleteTask.mutate(id, {
-        onSuccess: () => setEditingTask(null),
+        onSuccess: () => setEditingTaskId(null),
       });
     }
+  };
+
+  const handleClickTask = (task: Task) => {
+    setEditingTaskId(task.id);
+    setShowInlineCreator(false);
+  };
+
+  const handleNewTask = () => {
+    setShowInlineCreator(true);
+    setEditingTaskId(null);
   };
 
   const handleToggleComplete = (task: Task) => {
@@ -129,15 +135,6 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
     });
   };
 
-  const handleDeleteSelected = () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`Delete ${selectedIds.size} selected task${selectedIds.size > 1 ? 's' : ''}?`)) return;
-    for (const id of selectedIds) {
-      deleteTask.mutate(id);
-    }
-    setSelectedIds(new Set());
-  };
-
   useEffect(() => {
     const endDrag = () => { isDragSelecting.current = false; };
     window.addEventListener('pointerup', endDrag);
@@ -160,7 +157,10 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
       if (e.key === 'Escape') {
-        if (selectedIds.size > 0) setSelectedIds(new Set());
+        // Priority: selectedIds → editingTaskId → showInlineCreator
+        if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
+        if (editingTaskId) { setEditingTaskId(null); return; }
+        if (showInlineCreator) { setShowInlineCreator(false); return; }
         return;
       }
       if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -182,7 +182,7 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, deleteTask, tasks, updateTask]);
+  }, [selectedIds, editingTaskId, showInlineCreator, deleteTask, tasks, updateTask]);
 
   if (isLoading) {
     return (
@@ -218,9 +218,18 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
               </button>
             )}
           </div>
-          <Button onClick={() => setShowForm(true)}>+ New Task</Button>
+          <Button onClick={handleNewTask}>+ New Task</Button>
         </div>
       </div>
+
+      {showInlineCreator && (
+        <InlineTaskCreator
+          workdayMin={workdayMin}
+          onSubmit={handleCreate}
+          onCancel={() => setShowInlineCreator(false)}
+          isSubmitting={createTask.isPending}
+        />
+      )}
 
       {overdueTasks.length > 0 && (
         <div className="rounded-lg border border-red-300 dark:border-red-700 overflow-hidden">
@@ -237,12 +246,23 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
                 <TaskCard
                   key={task.id}
                   task={task}
-                  onClick={setEditingTask}
+                  onClick={handleClickTask}
                   onToggleComplete={handleToggleComplete}
                   selected={selectedIds.has(task.id)}
                   onDragSelectStart={handleDragSelectStart}
                   onDragSelectEnter={handleDragSelectEnter}
                   onToggleSelect={handleToggleSelect}
+                  isEditing={editingTaskId === task.id}
+                  editingContent={
+                    <InlineTaskEditor
+                      task={task}
+                      workdayMin={workdayMin}
+                      onSubmit={handleUpdate}
+                      onCancel={() => setEditingTaskId(null)}
+                      onDelete={() => handleDelete(task.id)}
+                      isSubmitting={updateTask.isPending}
+                    />
+                  }
                 />
               ))}
             </div>
@@ -262,13 +282,19 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
       ) : activeTasks.length > 0 ? (
         <PriorityColumns
           tasks={activeTasks}
-          onClickTask={setEditingTask}
+          editingTaskId={editingTaskId}
+          onClickTask={handleClickTask}
+          onEditSubmit={handleUpdate}
+          onEditCancel={() => setEditingTaskId(null)}
+          onEditDelete={handleDelete}
           onToggleComplete={handleToggleComplete}
           onChangePriority={(id, priority) => updateTask.mutate({ id, priority })}
           selectedIds={selectedIds}
           onDragSelectStart={handleDragSelectStart}
           onDragSelectEnter={handleDragSelectEnter}
           onToggleSelect={handleToggleSelect}
+          workdayMin={workdayMin}
+          isSubmitting={updateTask.isPending}
         />
       ) : null}
 
@@ -287,45 +313,29 @@ export function TaskList({ settings, schedulerActive, onTasksCreated }: TaskList
                 <TaskCard
                   key={task.id}
                   task={task}
-                  onClick={setEditingTask}
+                  onClick={handleClickTask}
                   onToggleComplete={handleToggleComplete}
                   selected={selectedIds.has(task.id)}
                   onDragSelectStart={handleDragSelectStart}
                   onDragSelectEnter={handleDragSelectEnter}
                   onToggleSelect={handleToggleSelect}
+                  isEditing={editingTaskId === task.id}
+                  editingContent={
+                    <InlineTaskEditor
+                      task={task}
+                      workdayMin={workdayMin}
+                      onSubmit={handleUpdate}
+                      onCancel={() => setEditingTaskId(null)}
+                      onDelete={() => handleDelete(task.id)}
+                      isSubmitting={updateTask.isPending}
+                    />
+                  }
                 />
               ))}
             </div>
           )}
         </div>
       )}
-
-      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="New Task">
-        <TaskForm
-          workdayMin={getWorkdayMin(settings)}
-          onSubmit={handleCreate}
-          onCancel={() => setShowForm(false)}
-          isSubmitting={createTask.isPending}
-        />
-      </Modal>
-
-      <Modal
-        isOpen={!!editingTask}
-        onClose={handleEditModalClose}
-        title="Edit Task"
-      >
-        {editingTask && (
-          <TaskForm
-            ref={editFormRef}
-            initialTask={editingTask}
-            workdayMin={getWorkdayMin(settings)}
-            onSubmit={handleUpdate}
-            onCancel={() => setEditingTask(null)}
-            onDelete={() => handleDelete(editingTask.id)}
-            isSubmitting={updateTask.isPending}
-          />
-        )}
-      </Modal>
     </div>
   );
 }
@@ -341,25 +351,45 @@ function DroppableColumn({
   label,
   headerColor,
   tasks,
+  editingTaskId,
   onClickTask,
+  onEditSubmit,
+  onEditCancel,
+  onEditDelete,
   onToggleComplete,
   isOver,
   selectedIds,
   onDragSelectStart,
   onDragSelectEnter,
   onToggleSelect,
+  workdayMin,
+  isSubmitting,
 }: {
   priority: Priority;
   label: string;
   headerColor: string;
   tasks: Task[];
+  editingTaskId: string | null;
   onClickTask: (task: Task) => void;
+  onEditSubmit: (data: {
+    title: string;
+    description: string;
+    estimated_min: number;
+    deadline: string | null;
+    priority: Priority;
+    completed: boolean;
+    people_notes: { person_name: string; note_text: string }[];
+  }) => void;
+  onEditCancel: () => void;
+  onEditDelete: (id: string) => void;
   onToggleComplete: (task: Task) => void;
   isOver: boolean;
   selectedIds: Set<string>;
   onDragSelectStart: (id: string) => void;
   onDragSelectEnter: (id: string) => void;
   onToggleSelect: (id: string) => void;
+  workdayMin: number;
+  isSubmitting: boolean;
 }) {
   const { setNodeRef } = useDroppable({ id: priority });
 
@@ -389,6 +419,17 @@ function DroppableColumn({
               onDragSelectStart={onDragSelectStart}
               onDragSelectEnter={onDragSelectEnter}
               onToggleSelect={onToggleSelect}
+              isEditing={editingTaskId === task.id}
+              editingContent={
+                <InlineTaskEditor
+                  task={task}
+                  workdayMin={workdayMin}
+                  onSubmit={onEditSubmit}
+                  onCancel={onEditCancel}
+                  onDelete={() => onEditDelete(task.id)}
+                  isSubmitting={isSubmitting}
+                />
+              }
             />
           ))
         )}
@@ -399,22 +440,42 @@ function DroppableColumn({
 
 function PriorityColumns({
   tasks,
+  editingTaskId,
   onClickTask,
+  onEditSubmit,
+  onEditCancel,
+  onEditDelete,
   onToggleComplete,
   onChangePriority,
   selectedIds,
   onDragSelectStart,
   onDragSelectEnter,
   onToggleSelect,
+  workdayMin,
+  isSubmitting,
 }: {
   tasks: Task[];
+  editingTaskId: string | null;
   onClickTask: (task: Task) => void;
+  onEditSubmit: (data: {
+    title: string;
+    description: string;
+    estimated_min: number;
+    deadline: string | null;
+    priority: Priority;
+    completed: boolean;
+    people_notes: { person_name: string; note_text: string }[];
+  }) => void;
+  onEditCancel: () => void;
+  onEditDelete: (id: string) => void;
   onToggleComplete: (task: Task) => void;
   onChangePriority: (id: string, priority: Priority) => void;
   selectedIds: Set<string>;
   onDragSelectStart: (id: string) => void;
   onDragSelectEnter: (id: string) => void;
   onToggleSelect: (id: string) => void;
+  workdayMin: number;
+  isSubmitting: boolean;
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [overColumn, setOverColumn] = useState<Priority | null>(null);
@@ -450,7 +511,9 @@ function PriorityColumns({
   }, [effectiveTasks]);
 
   const handleDragStart = (event: DragStartEvent) => {
+    // Don't initiate drag for a card being edited
     const task = tasks.find((t) => t.id === event.active.id);
+    if (task && editingTaskId === task.id) return;
     if (task) setActiveTask(task);
   };
 
@@ -517,13 +580,19 @@ function PriorityColumns({
             label={label}
             headerColor={headerColor}
             tasks={grouped[priority]}
+            editingTaskId={editingTaskId}
             onClickTask={onClickTask}
+            onEditSubmit={onEditSubmit}
+            onEditCancel={onEditCancel}
+            onEditDelete={onEditDelete}
             onToggleComplete={onToggleComplete}
             isOver={overColumn === priority}
             selectedIds={selectedIds}
             onDragSelectStart={onDragSelectStart}
             onDragSelectEnter={onDragSelectEnter}
             onToggleSelect={onToggleSelect}
+            workdayMin={workdayMin}
+            isSubmitting={isSubmitting}
           />
         ))}
       </div>
