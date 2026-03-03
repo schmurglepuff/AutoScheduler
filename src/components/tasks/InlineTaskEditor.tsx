@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Task, Priority } from '../../types';
-import { TaskForm } from './TaskForm';
+import { TaskForm, type TaskFormHandle } from './TaskForm';
+import { Button } from '../ui/Button';
 
 interface InlineTaskEditorProps {
   task: Task;
@@ -19,32 +20,41 @@ interface InlineTaskEditorProps {
   isSubmitting?: boolean;
 }
 
-export function InlineTaskEditor({ task, workdayMin, onSubmit, onCancel, onDelete, isSubmitting }: InlineTaskEditorProps) {
+export function InlineTaskEditor({ task, workdayMin, onSubmit, onCancel, onDelete }: InlineTaskEditorProps) {
+  const formRef = useRef<TaskFormHandle>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Click outside → auto-save and close
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const target = e.target as HTMLElement;
-      // Don't fire when user is typing in an input/textarea
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
-      onCancel();
+    const handlePointerDown = (e: PointerEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        formRef.current?.submit();
+        onCancel();
+      }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [onCancel]);
 
   return (
     <div
+      ref={wrapperRef}
       className="border-2 border-accent rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm"
       onClick={(e) => e.stopPropagation()}
     >
       <TaskForm
+        ref={formRef}
         initialTask={task}
         workdayMin={workdayMin}
         onSubmit={onSubmit}
         onCancel={onCancel}
-        onDelete={onDelete}
-        isSubmitting={isSubmitting}
+        hideActions
       />
+      <div className="pt-3">
+        <Button type="button" variant="danger" onClick={onDelete}>
+          Delete
+        </Button>
+      </div>
     </div>
   );
 }

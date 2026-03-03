@@ -27,6 +27,8 @@ interface TaskFormProps {
   onCancel: () => void;
   onDelete?: () => void;
   isSubmitting?: boolean;
+  /** Hide the Cancel/Save/Delete button row (used by inline editor which provides its own actions). */
+  hideActions?: boolean;
 }
 
 // Generate options
@@ -90,7 +92,7 @@ export interface TaskFormHandle {
 }
 
 export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
-  { initialTask, defaultDeadline, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting }: TaskFormProps,
+  { initialTask, defaultDeadline, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting, hideActions }: TaskFormProps,
   ref
 ) {
   const [title, setTitle] = useState(initialTask?.title || '');
@@ -274,23 +276,25 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
         </label>
       )}
       <PersonNoteInput notes={notes} onChange={setNotes} />
-      <div className="flex gap-2 justify-between pt-2">
-        {onDelete ? (
-          <Button type="button" variant="danger" onClick={onDelete}>
-            Delete
-          </Button>
-        ) : (
-          <div />
-        )}
-        <div className="flex gap-2">
-          <Button type="button" variant="secondary" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
-            {initialTask ? 'Save' : 'Create Task'}
-          </Button>
+      {!hideActions && (
+        <div className="flex gap-2 justify-between pt-2">
+          {onDelete ? (
+            <Button type="button" variant="danger" onClick={onDelete}>
+              Delete
+            </Button>
+          ) : (
+            <div />
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting || !title.trim() || (!noDeadline && !dlDate)}>
+              {initialTask ? 'Save' : 'Create Task'}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </form>
   );
 });
