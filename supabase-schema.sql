@@ -1,6 +1,20 @@
 -- AutoScheduler Database Schema
 -- Run this in your Supabase SQL Editor
 
+-- Focus areas table (Kanban columns)
+CREATE TABLE IF NOT EXISTS focus_areas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  position integer NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE focus_areas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on focus_areas" ON focus_areas FOR ALL USING (true) WITH CHECK (true);
+
+-- Seed default focus areas (idempotent)
+INSERT INTO focus_areas (name, position) VALUES ('Backlog', 0), ('To-Do', 1), ('Working-On', 2)
+ON CONFLICT DO NOTHING;
+
 -- Tasks table
 CREATE TABLE IF NOT EXISTS tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,7 +27,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   split_group_id uuid NULL,
-  split_index integer NULL
+  split_index integer NULL,
+  focus_area_id uuid REFERENCES focus_areas(id) ON DELETE SET NULL
 );
 
 -- People notes (linked to tasks)
@@ -63,6 +78,19 @@ CREATE POLICY "Allow all on tasks" ON tasks FOR ALL USING (true) WITH CHECK (tru
 CREATE POLICY "Allow all on people_notes" ON people_notes FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on schedule_slots" ON schedule_slots FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on settings" ON settings FOR ALL USING (true) WITH CHECK (true);
+
+-- Migration: add focus areas (run in Supabase dashboard for existing installs)
+-- CREATE TABLE IF NOT EXISTS focus_areas (
+--   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+--   name text NOT NULL,
+--   position integer NOT NULL DEFAULT 0,
+--   created_at timestamptz DEFAULT now()
+-- );
+-- ALTER TABLE focus_areas ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Allow all on focus_areas" ON focus_areas FOR ALL USING (true) WITH CHECK (true);
+-- INSERT INTO focus_areas (name, position) VALUES ('Backlog', 0), ('To-Do', 1), ('Working-On', 2) ON CONFLICT DO NOTHING;
+-- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS focus_area_id uuid REFERENCES focus_areas(id) ON DELETE SET NULL;
+-- UPDATE tasks SET focus_area_id = (SELECT id FROM focus_areas ORDER BY position ASC LIMIT 1) WHERE focus_area_id IS NULL;
 
 -- Migration: add auto-split columns if upgrading from an earlier schema
 -- ALTER TABLE tasks ADD COLUMN IF NOT EXISTS split_group_id uuid NULL;

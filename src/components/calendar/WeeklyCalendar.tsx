@@ -24,6 +24,7 @@ interface WeeklyCalendarProps {
   onSlotClick?: (slot: ScheduleSlot) => void;
   onMoveSlot?: (id: string, startTime: string, endTime: string) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleGroupLock?: (slot: ScheduleSlot) => void;
   onToggleComplete?: (slot: ScheduleSlot) => void;
   onBulkToggleLock?: (slots: ScheduleSlot[], locked: boolean) => void;
   onCreateTask?: (startTime: Date) => void;
@@ -46,7 +47,7 @@ function parseCellId(cellId: string): Date | null {
   );
 }
 
-export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock, onToggleComplete, onBulkToggleLock, onCreateTask, autoScheduleButton }: WeeklyCalendarProps) {
+export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onToggleLock, onToggleGroupLock, onToggleComplete, onBulkToggleLock, onCreateTask, autoScheduleButton }: WeeklyCalendarProps) {
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
@@ -350,6 +351,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                   slots={showDeadlineOnly ? slots.filter((s) => s.task?.deadline) : slots}
                   onSlotClick={onSlotClick}
                   onToggleLock={onToggleLock}
+                  onToggleGroupLock={onToggleGroupLock}
                   onToggleComplete={onToggleComplete}
                   onCreateTask={onCreateTask}
                   overCellId={overCellId}
