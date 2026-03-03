@@ -121,12 +121,7 @@ export function generateSchedule(
   }
 
   const now = new Date();
-  const incompleteTasks = tasks.filter((t) => {
-    if (t.completed) return false;
-    // Skip tasks with past deadlines
-    if (t.deadline && new Date(t.deadline) < now) return false;
-    return true;
-  });
+  const incompleteTasks = tasks.filter((t) => !t.completed);
 
   // Tier 1: tasks WITH future deadlines — earliest deadline first, priority as tiebreaker
   const withDeadline = incompleteTasks

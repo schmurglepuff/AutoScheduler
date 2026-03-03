@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { generateSchedule } from '../services/scheduler';
 import { shouldSplitTask, splitTaskData, getWorkdayMin } from '../utils/taskSplit';
@@ -6,7 +7,10 @@ import type { Task, Settings, ScheduleSlot } from '../types';
 
 export function useSchedule(tasks: Task[], settings: Settings) {
   const queryClient = useQueryClient();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Real-time auto-lock: whenever slots change, schedule a timer to fire
+  // exactly when the next unlocked slot starts, locking it immediately.
   const slotsQuery = useQuery({
     queryKey: ['schedule_slots'],
     queryFn: async (): Promise<ScheduleSlot[]> => {
@@ -21,6 +25,13 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
   const regenerate = useMutation({
     mutationFn: async () => {
+      // 0. Auto-lock any unlocked slots that have already started (are in the past)
+      await supabase
+        .from('schedule_slots')
+        .update({ locked: true })
+        .eq('locked', false)
+        .lt('start_time', new Date().toISOString());
+
       // 1. Fetch fresh tasks directly from DB (avoids stale closure)
       const { data: rawTasks, error: taskErr } = await supabase
         .from('tasks')
@@ -363,12 +374,11 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         }
       }
 
-      // 6. Delete unlocked future slots
+      // 6. Delete all remaining unlocked slots (past ones were locked in step 0)
       await supabase
         .from('schedule_slots')
         .delete()
-        .eq('locked', false)
-        .gte('start_time', new Date().toISOString());
+        .eq('locked', false);
 
       // 7. Insert new slots
       if (newSlots.length > 0) {
@@ -387,17 +397,19 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
   const moveSlot = useMutation({
     mutationFn: async ({ id, start_time, end_time }: { id: string; start_time: string; end_time: string }) => {
+      const locked = new Date(start_time) < new Date();
       const { error } = await supabase
         .from('schedule_slots')
-        .update({ start_time, end_time, locked: false })
+        .update({ start_time, end_time, locked })
         .eq('id', id);
       if (error) throw error;
     },
     onMutate: async ({ id, start_time, end_time }) => {
+      const locked = new Date(start_time) < new Date();
       await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
       const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
       queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
-        old?.map((s) => (s.id === id ? { ...s, start_time, end_time, locked: false } : s))
+        old?.map((s) => (s.id === id ? { ...s, start_time, end_time, locked } : s))
       );
       return { previous };
     },
@@ -483,8 +495,42 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     },
   });
 
+  const currentSlots = slotsQuery.data || [];
+
+  // Real-time auto-lock: schedule a timer to fire exactly when the next
+  // unlocked slot starts, then lock all newly-past slots immediately.
+  useEffect(() => {
+    const autoLock = async () => {
+      await supabase
+        .from('schedule_slots')
+        .update({ locked: true })
+        .eq('locked', false)
+        .lt('start_time', new Date().toISOString());
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    };
+
+    const scheduleNext = (slotList: ScheduleSlot[]) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+
+      const now = Date.now();
+      const nextStart = slotList
+        .filter((s) => !s.locked && new Date(s.start_time).getTime() > now)
+        .map((s) => new Date(s.start_time).getTime())
+        .sort((a, b) => a - b)[0];
+
+      if (!nextStart) return;
+
+      timerRef.current = setTimeout(async () => {
+        await autoLock();
+      }, nextStart - now);
+    };
+
+    scheduleNext(currentSlots);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [currentSlots, queryClient]);
+
   return {
-    slots: slotsQuery.data || [],
+    slots: currentSlots,
     isLoading: slotsQuery.isLoading,
     regenerate,
     moveSlot,

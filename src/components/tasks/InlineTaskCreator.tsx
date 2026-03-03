@@ -3,10 +3,7 @@ import type { Priority } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
-
-const dayOptions = Array.from({ length: 31 }, (_, i) => ({ value: String(i), label: `${i}d` }));
-const hourOptions = Array.from({ length: 24 }, (_, i) => ({ value: String(i), label: `${i}h` }));
-const minuteOptions = [0, 15, 30, 45].map((m) => ({ value: String(m), label: `${m}m` }));
+import { EstimatedTimeInput } from '../ui/EstimatedTimeInput';
 
 const clockHourOptions = Array.from({ length: 24 }, (_, i) => ({
   value: String(i).padStart(2, '0'),
@@ -29,6 +26,7 @@ function defaultDeadlineValues() {
 
 interface InlineTaskCreatorProps {
   workdayMin: number;
+  focusAreaId?: string | null;
   onSubmit: (data: {
     title: string;
     description: string;
@@ -37,17 +35,18 @@ interface InlineTaskCreatorProps {
     priority: Priority;
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
+    focus_area_id?: string | null;
   }) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }
 
-export function InlineTaskCreator({ workdayMin, onSubmit, onCancel, isSubmitting }: InlineTaskCreatorProps) {
+export function InlineTaskCreator({ workdayMin, focusAreaId, onSubmit, onCancel, isSubmitting }: InlineTaskCreatorProps) {
   const [title, setTitle] = useState('');
   const [estDays, setEstDays] = useState('0');
   const [estHours, setEstHours] = useState('1');
   const [estMins, setEstMins] = useState('0');
-  const [priority, setPriority] = useState<Priority>('Medium');
+  const [priority, setPriority] = useState<Priority>('Low');
   const [noDeadline, setNoDeadline] = useState(true);
   const dl = defaultDeadlineValues();
   const [dlDate, setDlDate] = useState(dl.date);
@@ -80,6 +79,7 @@ export function InlineTaskCreator({ workdayMin, onSubmit, onCancel, isSubmitting
       priority,
       completed: false,
       people_notes: [],
+      focus_area_id: focusAreaId ?? null,
     });
   };
 
@@ -92,8 +92,6 @@ export function InlineTaskCreator({ workdayMin, onSubmit, onCancel, isSubmitting
       onCancel();
     }
   };
-
-  const totalEstimatedMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
 
   return (
     <div className="border-2 border-accent rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm">
@@ -111,32 +109,38 @@ export function InlineTaskCreator({ workdayMin, onSubmit, onCancel, isSubmitting
         {/* Estimated Time */}
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Estimated Time</label>
-          <div className="grid grid-cols-3 gap-2">
-            <Select value={estDays} onChange={(e) => setEstDays(e.target.value)} options={dayOptions} />
-            <Select value={estHours} onChange={(e) => setEstHours(e.target.value)} options={hourOptions} />
-            <Select value={estMins} onChange={(e) => setEstMins(e.target.value)} options={minuteOptions} />
-          </div>
-          {totalEstimatedMin > 0 && (
-            <span className="text-xs text-gray-400 mt-0.5">
-              {[
-                parseInt(estDays) > 0 ? `${estDays}d` : '',
-                parseInt(estHours) > 0 ? `${estHours}h` : '',
-                parseInt(estMins) > 0 ? `${estMins}m` : '',
-              ].filter(Boolean).join(' ')}
-            </span>
-          )}
+          <EstimatedTimeInput
+            days={estDays}
+            hours={estHours}
+            mins={estMins}
+            onChange={(d, h, m) => { setEstDays(d); setEstHours(h); setEstMins(m); }}
+          />
         </div>
 
-        <Select
-          label="Priority"
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as Priority)}
-          options={[
-            { value: 'High', label: 'High' },
-            { value: 'Medium', label: 'Medium' },
-            { value: 'Low', label: 'Low' },
-          ]}
-        />
+        {/* Priority */}
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Priority</label>
+          <div className="flex gap-2">
+            {(['Low', 'Medium', 'High'] as Priority[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPriority(p)}
+                className={`flex-1 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                  priority === p
+                    ? p === 'Low'
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : p === 'Medium'
+                      ? 'bg-yellow-500 border-yellow-500 text-white'
+                      : 'bg-red-500 border-red-500 text-white'
+                    : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-400'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Deadline */}
         <div className="flex flex-col gap-1">

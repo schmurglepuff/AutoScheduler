@@ -3,6 +3,7 @@ import type { Task, Priority } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
+import { EstimatedTimeInput } from '../ui/EstimatedTimeInput';
 import { PersonNoteInput } from './PersonNoteInput';
 
 interface PersonNoteEntry {
@@ -30,22 +31,6 @@ interface TaskFormProps {
   /** Hide the Cancel/Save/Delete button row (used by inline editor which provides its own actions). */
   hideActions?: boolean;
 }
-
-// Generate options
-const dayOptions = Array.from({ length: 31 }, (_, i) => ({
-  value: String(i),
-  label: `${i}d`,
-}));
-
-const hourOptions = Array.from({ length: 24 }, (_, i) => ({
-  value: String(i),
-  label: `${i}h`,
-}));
-
-const minuteOptions = [0, 15, 30, 45].map((m) => ({
-  value: String(m),
-  label: `${m}m`,
-}));
 
 const clockHourOptions = Array.from({ length: 24 }, (_, i) => ({
   value: String(i).padStart(2, '0'),
@@ -119,8 +104,6 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
     })) || []
   );
 
-  const totalEstimatedMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
-
   useImperativeHandle(ref, () => ({
     submit() {
       if (!title.trim() || (!noDeadline && !dlDate)) return;
@@ -191,32 +174,12 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
       {/* Estimated Time */}
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Estimated Time</label>
-        <div className="grid grid-cols-3 gap-2">
-          <Select
-            value={estDays}
-            onChange={(e) => setEstDays(e.target.value)}
-            options={dayOptions}
-          />
-          <Select
-            value={estHours}
-            onChange={(e) => setEstHours(e.target.value)}
-            options={hourOptions}
-          />
-          <Select
-            value={estMins}
-            onChange={(e) => setEstMins(e.target.value)}
-            options={minuteOptions}
-          />
-        </div>
-        {totalEstimatedMin > 0 && (
-          <span className="text-xs text-gray-400 mt-0.5">
-            {[
-              parseInt(estDays) > 0 ? `${estDays}d` : '',
-              parseInt(estHours) > 0 ? `${estHours}h` : '',
-              parseInt(estMins) > 0 ? `${estMins}m` : '',
-            ].filter(Boolean).join(' ')}
-          </span>
-        )}
+        <EstimatedTimeInput
+          days={estDays}
+          hours={estHours}
+          mins={estMins}
+          onChange={(d, h, m) => { setEstDays(d); setEstHours(h); setEstMins(m); }}
+        />
       </div>
 
       {/* Deadline */}
@@ -254,16 +217,30 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
         )}
       </div>
 
-      <Select
-        label="Priority"
-        value={priority}
-        onChange={(e) => setPriority(e.target.value as Priority)}
-        options={[
-          { value: 'High', label: 'High' },
-          { value: 'Medium', label: 'Medium' },
-          { value: 'Low', label: 'Low' },
-        ]}
-      />
+      {/* Priority */}
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Priority</label>
+        <div className="flex gap-2">
+          {(['Low', 'Medium', 'High'] as Priority[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPriority(p)}
+              className={`flex-1 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                priority === p
+                  ? p === 'Low'
+                    ? 'bg-green-500 border-green-500 text-white'
+                    : p === 'Medium'
+                    ? 'bg-yellow-500 border-yellow-500 text-white'
+                    : 'bg-red-500 border-red-500 text-white'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-400'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
       {initialTask && (
         <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <input

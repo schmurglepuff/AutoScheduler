@@ -130,14 +130,14 @@ export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSele
           className="mt-0.5 w-5 h-5 rounded"
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3
-              className={`font-medium text-gray-900 dark:text-gray-100 ${
-                task.completed ? 'line-through' : ''
-              }`}
-            >
-              {task.title}
-            </h3>
+          <h3
+            className={`font-medium text-gray-900 dark:text-gray-100 ${
+              task.completed ? 'line-through' : ''
+            }`}
+          >
+            {task.title}
+          </h3>
+          <div className="flex items-center gap-2 flex-wrap mt-1">
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityBadge[task.priority]}`}
             >

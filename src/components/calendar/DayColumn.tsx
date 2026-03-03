@@ -1,7 +1,62 @@
+import { useMemo } from 'react';
 import type { ScheduleSlot } from '../../types';
 import { isSameDay, formatDateISO } from '../../utils/dateHelpers';
 import { TimeSlot } from './TimeSlot';
 import { ScheduledBlock } from './ScheduledBlock';
+
+/** Assigns each slot a column index and total column count for side-by-side overlap rendering. */
+function computeOverlapLayout(slots: ScheduleSlot[]): Map<string, { col: number; totalCols: number }> {
+  if (slots.length === 0) return new Map();
+
+  const items = slots.map((s) => ({
+    id: s.id,
+    start: new Date(s.start_time).getTime(),
+    end: new Date(s.end_time).getTime(),
+  })).sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Greedy column assignment: place each slot in the first column whose last slot ended before this one starts
+  const colEnds: number[] = [];
+  const colOf = new Map<string, number>();
+  for (const item of items) {
+    const col = colEnds.findIndex((end) => end <= item.start);
+    const assigned = col === -1 ? colEnds.length : col;
+    colEnds[assigned] = item.end;
+    colOf.set(item.id, assigned);
+  }
+
+  // Union-Find to group transitively overlapping slots into clusters
+  const parent = new Map<string, string>(items.map((s) => [s.id, s.id]));
+  const find = (id: string): string => {
+    if (parent.get(id) !== id) parent.set(id, find(parent.get(id)!));
+    return parent.get(id)!;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (items[j].start >= items[i].end) break; // sorted by start — no more overlaps with i
+      union(items[i].id, items[j].id);
+    }
+  }
+
+  // For each cluster, totalCols = highest column index used + 1
+  const clusterMaxCol = new Map<string, number>();
+  for (const item of items) {
+    const root = find(item.id);
+    const col = colOf.get(item.id)!;
+    clusterMaxCol.set(root, Math.max(clusterMaxCol.get(root) ?? 0, col));
+  }
+
+  const result = new Map<string, { col: number; totalCols: number }>();
+  for (const item of items) {
+    const root = find(item.id);
+    result.set(item.id, { col: colOf.get(item.id)!, totalCols: (clusterMaxCol.get(root) ?? 0) + 1 });
+  }
+  return result;
+}
 
 interface DayColumnProps {
   date: Date;
@@ -9,6 +64,7 @@ interface DayColumnProps {
   slots: ScheduleSlot[];
   onSlotClick?: (slot: ScheduleSlot) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleGroupLock?: (slot: ScheduleSlot) => void;
   onToggleComplete?: (slot: ScheduleSlot) => void;
   onCreateTask?: (startTime: Date) => void;
   overCellId: string | null;
@@ -18,7 +74,7 @@ interface DayColumnProps {
   lunchEnd?: string;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleComplete, onCreateTask, overCellId, workDayStart, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleGroupLock, onToggleComplete, onCreateTask, overCellId, workDayStart, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -37,6 +93,8 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
     const slotEnd = new Date(s.end_time);
     return slotStart < dayEnd && slotEnd > dayStart;
   });
+
+  const overlapLayout = useMemo(() => computeOverlapLayout(daySlots), [daySlots]);
 
   const dayName = date.toLocaleDateString([], { weekday: 'short' });
   const dayNum = date.getDate();
@@ -167,14 +225,21 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
 
           if (heightPercent <= 0) return null;
 
+          const layout = overlapLayout.get(slot.id) ?? { col: 0, totalCols: 1 };
+          const leftPercent = (layout.col / layout.totalCols) * 100;
+          const widthPercent = (1 / layout.totalCols) * 100;
+
           return (
             <ScheduledBlock
               key={slot.id}
               slot={slot}
               topPercent={topPercent}
               heightPercent={heightPercent}
+              leftPercent={leftPercent}
+              widthPercent={widthPercent}
               onClick={onSlotClick}
               onToggleLock={onToggleLock}
+              onToggleGroupLock={onToggleGroupLock}
               onToggleComplete={onToggleComplete}
               workDayEnd={workDayEnd}
             />

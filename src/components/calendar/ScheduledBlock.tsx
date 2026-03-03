@@ -25,14 +25,17 @@ interface ScheduledBlockProps {
   slot: ScheduleSlot;
   topPercent: number;
   heightPercent: number;
+  leftPercent?: number;
+  widthPercent?: number;
   onClick?: (slot: ScheduleSlot) => void;
   onToggleLock?: (slot: ScheduleSlot) => void;
+  onToggleGroupLock?: (slot: ScheduleSlot) => void;
   onToggleComplete?: (slot: ScheduleSlot) => void;
   isDragOverlay?: boolean;
   workDayEnd?: string;
 }
 
-export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onToggleLock, onToggleComplete, isDragOverlay, workDayEnd }: ScheduledBlockProps) {
+export function ScheduledBlock({ slot, topPercent, heightPercent, leftPercent, widthPercent, onClick, onToggleLock, onToggleGroupLock, onToggleComplete, isDragOverlay, workDayEnd }: ScheduledBlockProps) {
   const isLocked = !!slot.locked;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `slot-${slot.id}`,
@@ -67,21 +70,24 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
   const hoveredRef = useRef(false);
   const toggledRef = useRef(false);
   const lHeldRef = useRef(false);
-
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.key === 'l' || e.key === 'L') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      lHeldRef.current = true;
-      if (hoveredRef.current && !toggledRef.current) {
-        toggledRef.current = true;
-        onToggleLock?.(slot);
+      if (e.shiftKey) {
+        if (hoveredRef.current) {
+          onToggleGroupLock?.(slot);
+        }
+      } else {
+        lHeldRef.current = true;
+        if (hoveredRef.current && !toggledRef.current) {
+          toggledRef.current = true;
+          onToggleLock?.(slot);
+        }
       }
     }
-  }, [slot, onToggleLock]);
+  }, [slot, onToggleLock, onToggleGroupLock]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'l' || e.key === 'L') {
-      lHeldRef.current = false;
-    }
+    if (e.key === 'l' || e.key === 'L') lHeldRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -107,7 +113,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         }
       }}
       onMouseLeave={() => { hoveredRef.current = false; toggledRef.current = false; }}
-      className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} left-1 right-1 rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
+      className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} transition-all
         ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500' : ''}
@@ -119,6 +125,9 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, onClick, onTog
         ...(!isDragOverlay ? {
           top: `${topPercent}%`,
           height: `${Math.max(heightPercent, 4)}%`,
+          left: leftPercent !== undefined ? `calc(${leftPercent}% + 2px)` : '4px',
+          right: widthPercent !== undefined ? 'auto' : '4px',
+          width: widthPercent !== undefined ? `calc(${widthPercent}% - 4px)` : undefined,
         } : {}),
         '--block-border-color': pStyle.borderColor,
       } as React.CSSProperties}

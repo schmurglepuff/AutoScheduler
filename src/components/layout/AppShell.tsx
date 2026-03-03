@@ -37,6 +37,22 @@ export function AppShell() {
     toggleLock.mutate({ id: slot.id, locked: !slot.locked });
   };
 
+  const handleToggleGroupLock = (slot: ScheduleSlot) => {
+    const groupId = slot.task?.split_group_id;
+    if (!groupId) {
+      // No group — fall back to toggling just this slot
+      toggleLock.mutate({ id: slot.id, locked: !slot.locked });
+      return;
+    }
+    const targetLocked = !slot.locked;
+    const groupSlots = slots.filter((s) => s.task?.split_group_id === groupId);
+    for (const s of groupSlots) {
+      if (s.locked !== targetLocked) {
+        toggleLock.mutate({ id: s.id, locked: targetLocked });
+      }
+    }
+  };
+
   const handleToggleComplete = (slot: ScheduleSlot) => {
     if (slot.task) updateTask.mutate({ id: slot.task.id, completed: !slot.task.completed });
   };
@@ -197,6 +213,7 @@ export function AppShell() {
                 onSlotClick={handleSlotClick}
                 onMoveSlot={handleMoveSlot}
                 onToggleLock={handleToggleLock}
+                onToggleGroupLock={handleToggleGroupLock}
                 onToggleComplete={handleToggleComplete}
                 onBulkToggleLock={handleBulkToggleLock}
                 onCreateTask={handleCreateFromCalendar}

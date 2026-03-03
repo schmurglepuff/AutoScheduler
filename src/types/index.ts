@@ -1,3 +1,10 @@
+export interface FocusArea {
+  id: string;
+  name: string;
+  position: number;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -11,6 +18,7 @@ export interface Task {
   people_notes?: PersonNote[];
   split_group_id?: string | null;
   split_index?: number | null;
+  focus_area_id?: string | null;
 }
 
 export interface PersonNote {
