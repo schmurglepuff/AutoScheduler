@@ -20,6 +20,7 @@ export function AppShell() {
   const [currentView, setCurrentView] = useState('calendar');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingSlot, setEditingSlot] = useState<ScheduleSlot | null>(null);
   const [creatingAtTime, setCreatingAtTime] = useState<string | null>(null);
   const [creatingDurationMin, setCreatingDurationMin] = useState<number | null>(null);
   const editFormRef = useRef<TaskFormHandle>(null);
@@ -85,22 +86,26 @@ export function AppShell() {
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
     project_id?: string | null;
+    slot_start: string | null;
+    slot_end: string | null;
   }) => {
-    const tasksToCreate = shouldSplitTask(data.estimated_min, workdayMin)
-      ? splitTaskData(data, workdayMin)
-      : [data];
+    // Exclude slot_start/slot_end — those aren't task table columns
+    const { slot_start: _ss, slot_end: _se, ...taskPayload } = data;
+    const tasksToCreate = shouldSplitTask(taskPayload.estimated_min, workdayMin)
+      ? splitTaskData(taskPayload, workdayMin)
+      : [taskPayload];
 
     const createSequentially = async () => {
       try {
         const createdTasks: Task[] = [];
         for (const t of tasksToCreate) {
-          const newTask = await createTask.mutateAsync({ ...t, project_id: data.project_id ?? null });
+          const newTask = await createTask.mutateAsync({ ...t, project_id: taskPayload.project_id ?? null });
           if (newTask) createdTasks.push(newTask as Task);
         }
 
         if (creatingAtTime) {
-          // Always place at the selected time. Lock it when created from a drag-range selection.
-          const lockSlot = creatingDurationMin !== null;
+          // Always place at the selected time. Never auto-lock on creation.
+          const lockSlot = false;
           let cursor = new Date(creatingAtTime);
           for (const task of createdTasks) {
             const end = new Date(cursor.getTime() + task.estimated_min * 60 * 1000);
@@ -144,6 +149,7 @@ export function AppShell() {
   const handleSlotClick = (slot: ScheduleSlot) => {
     if (slot.task) {
       setEditingTask(slot.task as Task);
+      setEditingSlot(slot);
     }
   };
 
@@ -156,16 +162,28 @@ export function AppShell() {
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
     project_id?: string | null;
+    slot_start: string | null;
+    slot_end: string | null;
   }) => {
     if (!editingTask) return;
-    const timeChanged = data.estimated_min !== editingTask.estimated_min;
-    const deadlineChanged = (data.deadline ?? '') !== (editingTask.deadline ?? '')
-      && new Date(data.deadline ?? 0).getTime() !== new Date(editingTask.deadline ?? 0).getTime();
+    const { slot_start, slot_end, ...taskData } = data;
+    const timeChanged = taskData.estimated_min !== editingTask.estimated_min;
+    const deadlineChanged = (taskData.deadline ?? '') !== (editingTask.deadline ?? '')
+      && new Date(taskData.deadline ?? 0).getTime() !== new Date(editingTask.deadline ?? 0).getTime();
     updateTask.mutate(
-      { id: editingTask.id, ...data },
+      { id: editingTask.id, ...taskData },
       {
         onSuccess: () => {
-          if (settings.scheduler_active && (timeChanged || deadlineChanged)) {
+          // Move slot if user explicitly set new start/end times
+          if (data.slot_start && data.slot_end && editingSlot) {
+            const existingStart = new Date(editingSlot.start_time).getTime();
+            const existingEnd = new Date(editingSlot.end_time).getTime();
+            const newStart = new Date(data.slot_start).getTime();
+            const newEnd = new Date(data.slot_end).getTime();
+            if (newStart !== existingStart || newEnd !== existingEnd) {
+              moveSlot.mutate({ id: editingSlot.id, start_time: data.slot_start, end_time: data.slot_end });
+            }
+          } else if (settings.scheduler_active && (timeChanged || deadlineChanged)) {
             regenerate.mutate();
           } else if (timeChanged) {
             resizeTaskSlots.mutate({
@@ -173,6 +191,8 @@ export function AppShell() {
               estimated_min: data.estimated_min,
             });
           }
+          setEditingTask(null);
+          setEditingSlot(null);
         },
       }
     );
@@ -181,6 +201,7 @@ export function AppShell() {
   const handleEditModalClose = () => {
     editFormRef.current?.submit();
     setEditingTask(null);
+    setEditingSlot(null);
   };
 
   const handleDeleteTask = () => {
@@ -288,9 +309,10 @@ export function AppShell() {
           <TaskForm
             ref={editFormRef}
             initialTask={editingTask}
+            initialSlotStart={editingSlot?.start_time}
             workdayMin={workdayMin}
             onSubmit={handleUpdateTask}
-            onCancel={() => setEditingTask(null)}
+            onCancel={() => { setEditingTask(null); setEditingSlot(null); }}
             onDelete={handleDeleteTask}
             isSubmitting={updateTask.isPending}
           />

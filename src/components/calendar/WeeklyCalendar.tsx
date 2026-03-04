@@ -142,6 +142,8 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
     setOverCellId(overId?.startsWith('cell-') ? overId : null);
   };
 
+  const gridRef = useRef<HTMLDivElement>(null);
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveSlot(null);
@@ -155,8 +157,25 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
     const slot = (active.data.current as { slot: ScheduleSlot } | undefined)?.slot;
     if (!slot) return;
 
-    const newStart = parseCellId(overId);
-    if (!newStart) return;
+    // Use the cell ID for the date, then refine to 15-min precision using pixel position
+    const cellDate = parseCellId(overId);
+    if (!cellDate) return;
+
+    let newStart: Date = cellDate;
+    const translatedRect = event.active.rect.current.translated;
+    if (translatedRect && gridRef.current) {
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const HEADER_H = 62; // day header height in px
+      const PX_PER_HOUR = 64; // matches h-16 (4rem) time gutter
+      const relY = translatedRect.top - gridRect.top - HEADER_H;
+      const minutesFromStart = (relY / PX_PER_HOUR) * 60;
+      const snapped = Math.round(minutesFromStart / 15) * 15;
+      const startHour = hours[0] ?? 0;
+      const totalMin = startHour * 60 + Math.max(0, snapped);
+      const clamped = Math.min((hours[hours.length - 1] + 1) * 60 - 15, totalMin);
+      newStart = new Date(cellDate);
+      newStart.setHours(Math.floor(clamped / 60), clamped % 60, 0, 0);
+    }
 
     // Preserve the original duration
     const origStart = new Date(slot.start_time);
@@ -407,7 +426,7 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
           >
-            <div className="relative z-10 flex rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200/60 dark:border-gray-800 overflow-hidden">
+            <div ref={gridRef} className="relative z-10 flex rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200/60 dark:border-gray-800 overflow-hidden">
               {/* Time gutter */}
               <div className="w-14 shrink-0">
                 <div className="h-[62px]" />
