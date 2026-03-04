@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { ScheduleSlot } from '../../types';
 import { isSameDay, formatDateISO } from '../../utils/dateHelpers';
 import { TimeSlot } from './TimeSlot';
 import { ScheduledBlock } from './ScheduledBlock';
+import { TimeRangePopup } from './TimeRangePopup';
 
 /** Assigns each slot a column index and total column count for side-by-side overlap rendering. */
 function computeOverlapLayout(slots: ScheduleSlot[]): Map<string, { col: number; totalCols: number }> {
@@ -67,6 +68,8 @@ interface DayColumnProps {
   onToggleGroupLock?: (slot: ScheduleSlot) => void;
   onToggleComplete?: (slot: ScheduleSlot) => void;
   onCreateTask?: (startTime: Date) => void;
+  onLockRange?: (start: Date, end: Date) => void;
+  onNewTaskInRange?: (start: Date, end: Date) => void;
   overCellId: string | null;
   workDayStart?: string;
   workDayEnd?: string;
@@ -74,7 +77,10 @@ interface DayColumnProps {
   lunchEnd?: string;
 }
 
-export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleGroupLock, onToggleComplete, onCreateTask, overCellId, workDayStart, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
+interface CellPos { hour: number; min: number }
+interface PopupState { x: number; y: number; start: Date; end: Date }
+
+export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onToggleGroupLock, onToggleComplete, onCreateTask, onLockRange, onNewTaskInRange, overCellId, workDayStart, workDayEnd, lunchStart, lunchEnd }: DayColumnProps) {
   const isToday = isSameDay(date, new Date());
   const startHour = hours[0] || 0;
   const endHour = (hours[hours.length - 1] || 0) + 1;
@@ -121,6 +127,103 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
     }
   }
 
+  // Drag-select state
+  const [selStart, setSelStart] = useState<CellPos | null>(null);
+  const [selEnd, setSelEnd] = useState<CellPos | null>(null);
+  const [isDragSelecting, setIsDragSelecting] = useState(false);
+  const [popup, setPopup] = useState<PopupState | null>(null);
+  const isDragSelectingRef = useRef(false);
+  // Refs to track latest sel values without stale closure in pointerup handler
+  const selStartRef = useRef<CellPos | null>(null);
+  const selEndRef = useRef<CellPos | null>(null);
+
+  const CELL_H = 32; // h-8 = 2rem = 32px
+
+  /** Get the cell at a given clientY relative to the grid container */
+  const getCellFromClientY = useCallback((container: Element, clientY: number) => {
+    const rect = container.getBoundingClientRect();
+    const relY = clientY - rect.top;
+    const idx = Math.max(0, Math.min(cells.length - 1, Math.floor(relY / CELL_H)));
+    return cells[idx] ?? null;
+  }, [cells]);
+
+  // Compute selection range for highlight
+  const selectionRange = useMemo(() => {
+    if (!selStart || !selEnd) return null;
+    const lo = Math.min(selStart.hour * 60 + selStart.min, selEnd.hour * 60 + selEnd.min);
+    const hi = Math.max(selStart.hour * 60 + selStart.min, selEnd.hour * 60 + selEnd.min);
+    return { loMin: lo, hiMin: hi };
+  }, [selStart, selEnd]);
+
+  const isCellInSelection = useCallback((hour: number, min: number) => {
+    if (!selectionRange) return false;
+    const cellMin = hour * 60 + min;
+    return cellMin >= selectionRange.loMin && cellMin <= selectionRange.hiMin;
+  }, [selectionRange]);
+
+  // Listen for global pointerup to finalize drag
+  useEffect(() => {
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!isDragSelectingRef.current) return;
+      isDragSelectingRef.current = false;
+      setIsDragSelecting(false);
+
+      const currentStart = selStartRef.current;
+      const currentEnd = selEndRef.current;
+      if (!currentStart || !currentEnd) {
+        setSelStart(null);
+        setSelEnd(null);
+        return;
+      }
+
+      const loMin = Math.min(currentStart.hour * 60 + currentStart.min, currentEnd.hour * 60 + currentEnd.min);
+      const hiMin = Math.max(currentStart.hour * 60 + currentStart.min, currentEnd.hour * 60 + currentEnd.min);
+
+      const rangeStart = new Date(date);
+      rangeStart.setHours(Math.floor(loMin / 60), loMin % 60, 0, 0);
+      const rangeEnd = new Date(date);
+      rangeEnd.setHours(Math.floor(hiMin / 60), (hiMin % 60) + 30, 0, 0);
+
+      setPopup({ x: e.clientX, y: e.clientY, start: rangeStart, end: rangeEnd });
+    };
+
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => window.removeEventListener('pointerup', handlePointerUp);
+  }, [date]);
+
+  /** Grid-level pointerdown — starts drag on empty cells */
+  const handleGridPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const cell = getCellFromClientY(e.currentTarget, e.clientY);
+    if (!cell || occupiedCells.has(cell.id)) return;
+    e.preventDefault();
+    const pos = { hour: cell.hour, min: cell.min };
+    selStartRef.current = pos;
+    selEndRef.current = pos;
+    setSelStart(pos);
+    setSelEnd(pos);
+    isDragSelectingRef.current = true;
+    setIsDragSelecting(true);
+  }, [getCellFromClientY, occupiedCells]);
+
+  /** Grid-level pointermove — extends selection while dragging */
+  const handleGridPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragSelectingRef.current) return;
+    const cell = getCellFromClientY(e.currentTarget, e.clientY);
+    if (!cell || occupiedCells.has(cell.id)) return;
+    const pos = { hour: cell.hour, min: cell.min };
+    selEndRef.current = pos;
+    setSelEnd(pos);
+  }, [getCellFromClientY, occupiedCells]);
+
+  const closePopup = useCallback(() => {
+    setPopup(null);
+    setSelStart(null);
+    setSelEnd(null);
+    selStartRef.current = null;
+    selEndRef.current = null;
+  }, []);
+
   return (
     <div className="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800 first:border-l-0">
       {/* Day header */}
@@ -141,7 +244,11 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
         </div>
       </div>
       {/* Time grid with droppable half-hour cells */}
-      <div className="relative overflow-hidden">
+      <div
+        className="relative overflow-hidden select-none"
+        onPointerDown={handleGridPointerDown}
+        onPointerMove={handleGridPointerMove}
+      >
         {/* Off-hours shading (before work start) */}
         {workDayStart && (() => {
           const [wsH, wsM] = workDayStart.split(':').map(Number);
@@ -183,7 +290,7 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
           const clampedHeight = Math.min(100 - clampedTop, lunchHeight - (clampedTop - lunchTop));
           return (
             <div
-              className="absolute inset-x-0 bg-amber-50/80 dark:bg-yellow-200/45 border-y border-dashed border-amber-200 dark:border-yellow-300/60 z-[11] pointer-events-auto group flex items-center justify-center"
+              className="absolute inset-x-0 bg-amber-50/80 dark:bg-yellow-200/45 border-y border-dashed border-amber-200 dark:border-yellow-300/60 z-[2] pointer-events-none flex items-center justify-center"
               style={{ top: `${clampedTop}%`, height: `${clampedHeight}%` }}
             >
               <svg
@@ -201,12 +308,15 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
           const cellStart = new Date(date);
           cellStart.setHours(cell.hour, cell.min, 0, 0);
           const isOccupied = occupiedCells.has(cell.id);
+          const inSel = isCellInSelection(cell.hour, cell.min);
           return (
             <TimeSlot
               key={cell.id}
               droppableId={cell.id}
               isOver={overCellId === cell.id}
               onCreateTask={!isOccupied && onCreateTask ? () => onCreateTask(cellStart) : undefined}
+              inSelection={inSel}
+              suppressCreate={isDragSelecting}
             />
           );
         })}
@@ -247,6 +357,18 @@ export function DayColumn({ date, hours, slots, onSlotClick, onToggleLock, onTog
         })}
 
       </div>
+
+      {popup && (
+        <TimeRangePopup
+          x={popup.x}
+          y={popup.y}
+          startTime={popup.start}
+          endTime={popup.end}
+          onLock={() => onLockRange?.(popup.start, popup.end)}
+          onNewTask={() => onNewTaskInRange?.(popup.start, popup.end)}
+          onClose={closePopup}
+        />
+      )}
     </div>
   );
 }

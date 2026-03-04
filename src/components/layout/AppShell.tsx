@@ -20,11 +20,12 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [creatingAtTime, setCreatingAtTime] = useState<string | null>(null);
+  const [creatingDurationMin, setCreatingDurationMin] = useState<number | null>(null);
   const editFormRef = useRef<TaskFormHandle>(null);
 
   const { settings, updateSettings } = useSettings();
   const { tasks, createTask, updateTask, deleteTask } = useTasks();
-  const { slots, regenerate, moveSlot, toggleLock, resizeTaskSlots, addSlot } = useSchedule(tasks, settings);
+  const { slots, regenerate, moveSlot, toggleLock, resizeTaskSlots, addSlot, addBlockerSlot } = useSchedule(tasks, settings);
   const workdayMin = getWorkdayMin(settings);
 
   useTheme(settings);
@@ -34,7 +35,7 @@ export function AppShell() {
   };
 
   const handleToggleLock = (slot: ScheduleSlot) => {
-    toggleLock.mutate({ id: slot.id, locked: !slot.locked });
+    toggleLock.mutate({ id: slot.id, locked: !slot.locked, slot });
   };
 
   const handleToggleGroupLock = (slot: ScheduleSlot) => {
@@ -65,8 +66,13 @@ export function AppShell() {
     }
   };
 
-  const handleCreateFromCalendar = (startTime: Date) => {
+  const handleCreateFromCalendar = (startTime: Date, endTime?: Date) => {
     setCreatingAtTime(startTime.toISOString());
+    setCreatingDurationMin(endTime ? Math.round((endTime.getTime() - startTime.getTime()) / 60000) : null);
+  };
+
+  const handleLockRange = (start: Date, end: Date) => {
+    addBlockerSlot.mutate({ start_time: start.toISOString(), end_time: end.toISOString() });
   };
 
   const handleCreateNewTask = (data: {
@@ -90,34 +96,44 @@ export function AppShell() {
           if (newTask) createdTasks.push(newTask as Task);
         }
 
-        if (settings.scheduler_active) {
-          // Active mode: auto-schedule all tasks
-          regenerate.mutate();
-        } else {
-          // Inactive mode: place back-to-back starting at click time or next whole hour
-          let cursor: Date;
-          if (creatingAtTime) {
-            cursor = new Date(creatingAtTime);
-          } else {
-            cursor = new Date();
-            cursor.setMinutes(0, 0, 0);
-            cursor.setHours(cursor.getHours() + 1);
-          }
-
+        if (creatingAtTime) {
+          // Always place at the selected time. Lock it when created from a drag-range selection.
+          const lockSlot = creatingDurationMin !== null;
+          let cursor = new Date(creatingAtTime);
           for (const task of createdTasks) {
             const end = new Date(cursor.getTime() + task.estimated_min * 60 * 1000);
             addSlot.mutate({
               task_id: task.id,
               start_time: cursor.toISOString(),
               end_time: end.toISOString(),
+              locked: lockSlot,
             });
             cursor = end;
+          }
+        } else if (settings.scheduler_active) {
+          // No specific time selected — let the scheduler place it
+          regenerate.mutate();
+        } else {
+          // Inactive mode, no time selected — place at next whole hour
+          const cursor = new Date();
+          cursor.setMinutes(0, 0, 0);
+          cursor.setHours(cursor.getHours() + 1);
+          let cur = cursor;
+          for (const task of createdTasks) {
+            const end = new Date(cur.getTime() + task.estimated_min * 60 * 1000);
+            addSlot.mutate({
+              task_id: task.id,
+              start_time: cur.toISOString(),
+              end_time: end.toISOString(),
+            });
+            cur = end;
           }
         }
       } catch (err) {
         console.error('Failed to create task(s):', err);
       }
       setCreatingAtTime(null);
+      setCreatingDurationMin(null);
     };
 
     createSequentially();
@@ -217,6 +233,8 @@ export function AppShell() {
                 onToggleComplete={handleToggleComplete}
                 onBulkToggleLock={handleBulkToggleLock}
                 onCreateTask={handleCreateFromCalendar}
+                onLockRange={handleLockRange}
+                onNewTaskInRange={(start, end) => handleCreateFromCalendar(start, end)}
               />
             </div>
           )}
@@ -278,15 +296,16 @@ export function AppShell() {
       {/* Create task modal from calendar timeslot click */}
       <Modal
         isOpen={!!creatingAtTime}
-        onClose={() => setCreatingAtTime(null)}
+        onClose={() => { setCreatingAtTime(null); setCreatingDurationMin(null); }}
         title="New Task"
       >
         {creatingAtTime && (
           <TaskForm
             defaultDeadline={creatingAtTime}
+            defaultEstimatedMin={creatingDurationMin ?? undefined}
             workdayMin={workdayMin}
             onSubmit={handleCreateNewTask}
-            onCancel={() => setCreatingAtTime(null)}
+            onCancel={() => { setCreatingAtTime(null); setCreatingDurationMin(null); }}
             isSubmitting={createTask.isPending}
           />
         )}

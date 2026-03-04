@@ -266,12 +266,7 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
         </div>
       )}
 
-      {tasks.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <p className="text-lg">No tasks yet</p>
-          <p className="text-sm mt-1">Create your first task to get started</p>
-        </div>
-      ) : q && activeTasks.length === 0 && overdueTasks.length === 0 && completedTasks.length === 0 ? (
+      {q && activeTasks.length === 0 && overdueTasks.length === 0 && completedTasks.length === 0 ? (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <p className="text-lg">No tasks match "{query}"</p>
         </div>
@@ -792,11 +787,22 @@ function FocusAreaColumns({
 
       if (!targetColumnId) return;
 
-      const draggedTask = tasks.find((t) => t.id === taskId);
-      const currentColumnId = draggedTask?.focus_area_id ?? (orderedAreas[0]?.id ?? null);
-      if (draggedTask && currentColumnId !== targetColumnId) {
-        setOptimisticOverrides((prev) => ({ ...prev, [taskId]: targetColumnId }));
-        onChangeColumn(taskId, targetColumnId);
+      // If dragged task is among selected, move all selected tasks; otherwise move just the dragged task
+      const idsToMove = selectedIds.has(taskId)
+        ? [...selectedIds]
+        : [taskId];
+
+      const newOverrides: Record<string, string | null> = {};
+      for (const id of idsToMove) {
+        const t = tasks.find((t) => t.id === id);
+        const currentColumnId = t?.focus_area_id ?? (orderedAreas[0]?.id ?? null);
+        if (t && currentColumnId !== targetColumnId) {
+          newOverrides[id] = targetColumnId;
+          onChangeColumn(id, targetColumnId);
+        }
+      }
+      if (Object.keys(newOverrides).length > 0) {
+        setOptimisticOverrides((prev) => ({ ...prev, ...newOverrides }));
       }
     }
   };

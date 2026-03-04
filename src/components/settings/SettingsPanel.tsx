@@ -9,6 +9,8 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ settings, onSave, onSchedulerActivated }: SettingsPanelProps) {
+  const lunchEnabled = !!settings.lunch_start && !!settings.lunch_end;
+
   const update = (changes: Partial<Omit<Settings, 'id'>>) => {
     onSave(changes);
     if ('scheduler_active' in changes && changes.scheduler_active && !settings.scheduler_active) {
@@ -35,19 +37,38 @@ export function SettingsPanel({ settings, onSave, onSchedulerActivated }: Settin
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Input
-          label="Lunch Start"
-          type="time"
-          value={settings.lunch_start}
-          onChange={(e) => update({ lunch_start: e.target.value })}
-        />
-        <Input
-          label="Lunch End"
-          type="time"
-          value={settings.lunch_end}
-          onChange={(e) => update({ lunch_end: e.target.value })}
-        />
+      <div className="flex flex-col gap-3">
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={lunchEnabled}
+            onChange={(e) => {
+              if (e.target.checked) {
+                update({ lunch_start: '12:00', lunch_end: '13:00' });
+              } else {
+                update({ lunch_start: '', lunch_end: '' });
+              }
+            }}
+            className="rounded"
+          />
+          Lunch break
+        </label>
+        {lunchEnabled && (
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Lunch Start"
+              type="time"
+              value={settings.lunch_start}
+              onChange={(e) => update({ lunch_start: e.target.value })}
+            />
+            <Input
+              label="Lunch End"
+              type="time"
+              value={settings.lunch_end}
+              onChange={(e) => update({ lunch_end: e.target.value })}
+            />
+          </div>
+        )}
       </div>
 
       <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">

@@ -14,6 +14,8 @@ interface PersonNoteEntry {
 interface TaskFormProps {
   initialTask?: Task;
   defaultDeadline?: string;
+  /** Pre-fill estimated time (in minutes) when creating from a calendar drag selection. */
+  defaultEstimatedMin?: number;
   /** Minutes per workday (from settings). 1d in the form = this many minutes. Default 480. */
   workdayMin?: number;
   onSubmit: (data: {
@@ -77,13 +79,13 @@ export interface TaskFormHandle {
 }
 
 export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
-  { initialTask, defaultDeadline, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting, hideActions }: TaskFormProps,
+  { initialTask, defaultDeadline, defaultEstimatedMin, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting, hideActions }: TaskFormProps,
   ref
 ) {
   const [title, setTitle] = useState(initialTask?.title || '');
   const [description, setDescription] = useState(initialTask?.description || '');
 
-  const initEst = parseInitialEstimate(initialTask?.estimated_min, workdayMin);
+  const initEst = parseInitialEstimate(initialTask?.estimated_min ?? defaultEstimatedMin, workdayMin);
   const [estDays, setEstDays] = useState(initEst.days);
   const [estHours, setEstHours] = useState(initEst.hours);
   const [estMins, setEstMins] = useState(initEst.mins);
@@ -140,7 +142,7 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
     onSubmit({
       title: title.trim(),
       description: description.trim(),
-      estimated_min: totalEstimatedMin || 15,
+      estimated_min: (parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins)) || 15,
       deadline,
       priority,
       completed,

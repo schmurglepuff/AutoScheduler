@@ -4,18 +4,20 @@ interface TimeSlotProps {
   droppableId: string;
   isOver: boolean;
   onCreateTask?: () => void;
+  inSelection?: boolean;
+  suppressCreate?: boolean;
 }
 
-export function TimeSlot({ droppableId, isOver, onCreateTask }: TimeSlotProps) {
+export function TimeSlot({ droppableId, isOver, onCreateTask, inSelection, suppressCreate }: TimeSlotProps) {
   const { setNodeRef } = useDroppable({ id: droppableId });
 
   return (
     <div
       ref={setNodeRef}
       className={`group/cell h-8 border-t border-gray-100 dark:border-gray-800 transition-colors relative
-        ${isOver ? 'bg-accent/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}
+        ${inSelection ? 'bg-accent/15' : isOver ? 'bg-accent/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}
     >
-      {onCreateTask && (
+      {onCreateTask && !suppressCreate && (
         <button
           type="button"
           onClick={(e) => {

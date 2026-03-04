@@ -19,7 +19,7 @@ interface TaskCardProps {
 export function TaskCard({ task, onClick, onToggleComplete, selected, onDragSelectStart, onDragSelectEnter, onToggleSelect, isEditing, editingContent }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
-    data: { task },
+    data: { type: 'task', task },
   });
 
   const style = {

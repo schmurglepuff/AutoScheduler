@@ -25,33 +25,25 @@ export function useSchedule(tasks: Task[], settings: Settings) {
 
   const regenerate = useMutation({
     mutationFn: async () => {
-      // 0. Auto-lock any unlocked slots that have already started (are in the past)
-      await supabase
-        .from('schedule_slots')
-        .update({ locked: true })
-        .eq('locked', false)
-        .lt('start_time', new Date().toISOString());
+      const now = new Date().toISOString();
 
-      // 1. Fetch fresh tasks directly from DB (avoids stale closure)
-      const { data: rawTasks, error: taskErr } = await supabase
-        .from('tasks')
-        .select('*, people_notes(*)')
-        .order('created_at', { ascending: true });
-      if (taskErr) throw taskErr;
-      let currentTasks = (rawTasks || []) as Task[];
+      // 0+1+2. Parallelise: auto-lock past slots, fetch tasks, fetch locked slots
+      const [, tasksResult, lockedSlotsResult] = await Promise.all([
+        supabase.from('schedule_slots').update({ locked: true }).eq('locked', false).lt('start_time', now),
+        supabase.from('tasks').select('*, people_notes(*)').eq('is_blocker', false).order('created_at', { ascending: true }),
+        supabase.from('schedule_slots').select('*, task:tasks(*)').eq('locked', true),
+      ]);
+      if (tasksResult.error) throw tasksResult.error;
+      if (lockedSlotsResult.error) throw lockedSlotsResult.error;
 
-      // 2. Fetch locked slots up-front — used both for split decisions and the scheduler
-      const { data: lockedSlotsData, error: fetchErr } = await supabase
-        .from('schedule_slots')
-        .select('*, task:tasks(*)')
-        .eq('locked', true);
-      if (fetchErr) throw fetchErr;
-      const locked = (lockedSlotsData || []) as ScheduleSlot[];
+      let currentTasks = (tasksResult.data || []) as Task[];
+      const locked = (lockedSlotsResult.data || []) as ScheduleSlot[];
       const lockedTaskIds = new Set(locked.map((s) => s.task_id));
 
       const workdayMin = getWorkdayMin(settings);
 
-      // Helper: insert a task + its notes, return the created Task
+      // Helper: insert a task + its notes sequentially, return the created Task
+      // (used in steps 3 & 4 where parts must be inserted one-at-a-time for ordering)
       const insertSplitTask = async (
         part: ReturnType<typeof splitTaskData>[number],
         notes: { person_name: string; note_text: string }[]
@@ -79,27 +71,27 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         return { ...created, people_notes: notes } as Task;
       };
 
-      // Helper: delete a task and its slots
-      const deleteTaskAndSlots = async (id: string) => {
-        await supabase.from('schedule_slots').delete().eq('task_id', id);
-        await supabase.from('tasks').delete().eq('id', id);
-      };
-
       // 3. Auto-split unsplit tasks that qualify (skip those with locked slots)
       const needsSplit = currentTasks.filter(
         (t) => !t.completed && !t.split_group_id && !lockedTaskIds.has(t.id) &&
           shouldSplitTask(t.estimated_min, workdayMin)
       );
       if (needsSplit.length > 0) {
-        const newlyCreated: Task[] = [];
-        for (const task of needsSplit) {
-          await deleteTaskAndSlots(task.id);
+        // Batch-delete all tasks-to-split in one query; CASCADE removes their slots
+        await supabase.from('tasks').delete().in('id', needsSplit.map((t) => t.id));
+
+        // Process all tasks in parallel; parts within each task are inserted sequentially
+        const newlyCreatedArrays = await Promise.all(needsSplit.map(async (task) => {
           const parts = splitTaskData(task, workdayMin);
           const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
+          const created: Task[] = [];
           for (const part of parts) {
-            newlyCreated.push(await insertSplitTask(part, notes));
+            created.push(await insertSplitTask(part, notes));
           }
-        }
+          return created;
+        }));
+
+        const newlyCreated = newlyCreatedArrays.flat();
         const splitIds = new Set(needsSplit.map((t) => t.id));
         currentTasks = [...currentTasks.filter((t) => !splitIds.has(t.id)), ...newlyCreated];
       }
@@ -114,10 +106,16 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         splitGroups.set(t.split_group_id, g);
       }
 
+      // Determine which groups need re-splitting
+      type ResplitGroup = {
+        groupTasks: Task[];
+        newParts: ReturnType<typeof splitTaskData>;
+        notes: { person_name: string; note_text: string }[];
+      };
+      const groupsToResplit: ResplitGroup[] = [];
       for (const groupTasks of splitGroups.values()) {
         if (groupTasks.some((t) => t.completed || lockedTaskIds.has(t.id))) continue;
 
-        // Reconstitute original: sum times, strip " X/N" suffix from title
         const totalMin = groupTasks.reduce((s, t) => s + t.estimated_min, 0);
         const first = groupTasks[0];
         const baseTitle = first.title.replace(/\s\d+\/\d+$/, '');
@@ -129,21 +127,32 @@ export function useSchedule(tasks: Task[], settings: Settings) {
           workdayMin
         );
 
-        // Skip if the split is identical to the current one (nothing to change)
         const sorted = [...groupTasks].sort((a, b) => (a.split_index ?? 0) - (b.split_index ?? 0));
         if (
           newParts.length === sorted.length &&
           newParts.every((p, i) => p.estimated_min === sorted[i].estimated_min)
         ) continue;
 
-        // Replace the group
-        for (const t of groupTasks) await deleteTaskAndSlots(t.id);
-        const newGroupTasks: Task[] = [];
-        for (const part of newParts) {
-          newGroupTasks.push(await insertSplitTask(part, notes));
+        groupsToResplit.push({ groupTasks, newParts, notes });
+      }
+
+      if (groupsToResplit.length > 0) {
+        // Batch-delete all tasks from all groups; CASCADE removes their slots
+        const allGroupTaskIds = groupsToResplit.flatMap(({ groupTasks }) => groupTasks.map((t) => t.id));
+        await supabase.from('tasks').delete().in('id', allGroupTaskIds);
+
+        // Process all groups in parallel; parts within each group inserted sequentially
+        const groupResults = await Promise.all(groupsToResplit.map(async ({ groupTasks, newParts, notes }) => {
+          const newGroupTasks: Task[] = [];
+          for (const part of newParts) {
+            newGroupTasks.push(await insertSplitTask(part, notes));
+          }
+          return { oldIds: new Set(groupTasks.map((t) => t.id)), newGroupTasks };
+        }));
+
+        for (const { oldIds, newGroupTasks } of groupResults) {
+          currentTasks = [...currentTasks.filter((t) => !oldIds.has(t.id)), ...newGroupTasks];
         }
-        const oldIds = new Set(groupTasks.map((t) => t.id));
-        currentTasks = [...currentTasks.filter((t) => !oldIds.has(t.id)), ...newGroupTasks];
       }
 
       // 5. Generate schedule with the final task list
@@ -183,50 +192,44 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         const origIndex = task.split_index ?? 1;
         const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
 
-        // Delete original task from DB (slots haven't been inserted yet)
-        await supabase.from('schedule_slots').delete().eq('task_id', taskId);
+        // Delete original task from DB; CASCADE removes any existing slots
         await supabase.from('tasks').delete().eq('id', taskId);
 
-        // Create a new task for each day's portion
+        // Batch-insert a row for each day's portion
         const sortedDays = [...slotsByDay.keys()].sort();
-        const createdTasks: Task[] = [];
-
-        for (const day of sortedDays) {
+        const portionRows = sortedDays.map((day) => {
           const daySlots = slotsByDay.get(day)!;
           const dayMin = daySlots.reduce(
             (sum, s) => sum + (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / (1000 * 60),
             0
           );
+          return {
+            title: baseTitle,
+            description: task.description ?? '',
+            estimated_min: dayMin,
+            deadline: task.deadline,
+            priority: task.priority,
+            completed: false,
+            split_group_id: groupId,
+            split_index: 0,
+          };
+        });
 
-          const { data: created, error: insErr } = await supabase
-            .from('tasks')
-            .insert({
-              title: baseTitle,
-              description: task.description ?? '',
-              estimated_min: dayMin,
-              deadline: task.deadline,
-              priority: task.priority,
-              completed: false,
-              split_group_id: groupId,
-              split_index: 0,
-            })
-            .select()
-            .single();
-          if (insErr) throw insErr;
+        const { data: createdRows, error: insErr } = await supabase.from('tasks').insert(portionRows).select();
+        if (insErr) throw insErr;
 
-          if (notes.length > 0) {
-            await supabase.from('people_notes').insert(
-              notes.map((n) => ({ task_id: created.id, person_name: n.person_name, note_text: n.note_text }))
-            );
-          }
+        // Batch-insert notes for all new tasks
+        const allNoteRows = (createdRows || []).flatMap((row) =>
+          notes.map((n) => ({ task_id: row.id, person_name: n.person_name, note_text: n.note_text }))
+        );
+        if (allNoteRows.length > 0) await supabase.from('people_notes').insert(allNoteRows);
 
-          // Reassign the pending slot entries to the new task
-          for (const slot of daySlots) {
-            slot.task_id = created.id;
-          }
-
-          createdTasks.push({ ...created, people_notes: notes } as Task);
-        }
+        // Reassign the pending slot entries to the new tasks (createdRows[i] → sortedDays[i])
+        const createdTasks: Task[] = (createdRows || []).map((row, i) => {
+          const daySlots = slotsByDay.get(sortedDays[i])!;
+          for (const slot of daySlots) slot.task_id = row.id;
+          return { ...row, people_notes: notes } as Task;
+        });
 
         // Update currentTasks: remove original, add day-parts
         currentTasks = [...currentTasks.filter((t) => t.id !== taskId), ...createdTasks];
@@ -242,13 +245,12 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         });
 
         const totalN = allGroupMembers.length;
-        for (let i = 0; i < allGroupMembers.length; i++) {
-          const member = allGroupMembers[i];
+        await Promise.all(allGroupMembers.map((member, i) => {
           const newTitle = `${baseTitle} ${i + 1}/${totalN}`;
-          await supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
           member.title = newTitle;
           member.split_index = i + 1;
-        }
+          return supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
+        }));
       }
 
       // 5c. Split tasks whose slots are separated by the lunch break into separate task records
@@ -259,7 +261,7 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         lunchSlotsByTaskId.set(slot.task_id, arr);
       }
 
-      // Parse lunch boundaries as hours (e.g. "12:00" -> 12)
+      // Parse lunch boundaries as minutes-of-day
       const [lunchStartH, lunchStartM] = settings.lunch_start.split(':').map(Number);
       const [lunchEndH, lunchEndM] = settings.lunch_end.split(':').map(Number);
       const lunchStartMin = lunchStartH * 60 + lunchStartM;
@@ -308,48 +310,42 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         const origIndex = task.split_index ?? 1;
         const notes = (task.people_notes || []) as { person_name: string; note_text: string }[];
 
-        // Delete original task from DB (slots haven't been inserted yet)
-        await supabase.from('schedule_slots').delete().eq('task_id', taskId);
+        // Delete original task from DB; CASCADE removes any existing slots
         await supabase.from('tasks').delete().eq('id', taskId);
 
+        // Batch-insert both portions
         const portions = [amSlots, pmSlots];
-        const createdTasks: Task[] = [];
-
-        for (const portionSlots of portions) {
+        const portionRows = portions.map((portionSlots) => {
           const portionMin = portionSlots.reduce(
             (sum, s) => sum + (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / (1000 * 60),
             0
           );
+          return {
+            title: baseTitle,
+            description: task.description ?? '',
+            estimated_min: portionMin,
+            deadline: task.deadline,
+            priority: task.priority,
+            completed: false,
+            split_group_id: groupId,
+            split_index: 0,
+          };
+        });
 
-          const { data: created, error: insErr } = await supabase
-            .from('tasks')
-            .insert({
-              title: baseTitle,
-              description: task.description ?? '',
-              estimated_min: portionMin,
-              deadline: task.deadline,
-              priority: task.priority,
-              completed: false,
-              split_group_id: groupId,
-              split_index: 0,
-            })
-            .select()
-            .single();
-          if (insErr) throw insErr;
+        const { data: createdRows, error: insErr } = await supabase.from('tasks').insert(portionRows).select();
+        if (insErr) throw insErr;
 
-          if (notes.length > 0) {
-            await supabase.from('people_notes').insert(
-              notes.map((n) => ({ task_id: created.id, person_name: n.person_name, note_text: n.note_text }))
-            );
-          }
+        // Batch-insert notes for all new tasks
+        const allNoteRows = (createdRows || []).flatMap((row) =>
+          notes.map((n) => ({ task_id: row.id, person_name: n.person_name, note_text: n.note_text }))
+        );
+        if (allNoteRows.length > 0) await supabase.from('people_notes').insert(allNoteRows);
 
-          // Reassign the pending slot entries to the new task
-          for (const slot of portionSlots) {
-            slot.task_id = created.id;
-          }
-
-          createdTasks.push({ ...created, people_notes: notes } as Task);
-        }
+        // Reassign the pending slot entries to the new tasks (createdRows[i] → portions[i])
+        const createdTasks: Task[] = (createdRows || []).map((row, i) => {
+          for (const slot of portions[i]) slot.task_id = row.id;
+          return { ...row, people_notes: notes } as Task;
+        });
 
         // Update currentTasks: remove original, add lunch-split parts
         currentTasks = [...currentTasks.filter((t) => t.id !== taskId), ...createdTasks];
@@ -365,13 +361,12 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         });
 
         const totalN = allGroupMembers.length;
-        for (let i = 0; i < allGroupMembers.length; i++) {
-          const member = allGroupMembers[i];
+        await Promise.all(allGroupMembers.map((member, i) => {
           const newTitle = `${baseTitle} ${i + 1}/${totalN}`;
-          await supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
           member.title = newTitle;
           member.split_index = i + 1;
-        }
+          return supabase.from('tasks').update({ title: newTitle, split_index: i + 1 }).eq('id', member.id);
+        }));
       }
 
       // 6. Delete all remaining unlocked slots (past ones were locked in step 0)
@@ -380,10 +375,10 @@ export function useSchedule(tasks: Task[], settings: Settings) {
         .delete()
         .eq('locked', false);
 
-      // 7. Insert new slots
+      // 7. Insert new slots in batches of 500
       if (newSlots.length > 0) {
-        for (let i = 0; i < newSlots.length; i += 100) {
-          const batch = newSlots.slice(i, i + 100);
+        for (let i = 0; i < newSlots.length; i += 500) {
+          const batch = newSlots.slice(i, i + 500);
           const { error } = await supabase.from('schedule_slots').insert(batch);
           if (error) throw error;
         }
@@ -423,20 +418,74 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     },
   });
 
+  const deleteBlockerSlot = useMutation({
+    mutationFn: async ({ slot_id, task_id }: { slot_id: string; task_id: string }) => {
+      const { error: slotErr } = await supabase.from('schedule_slots').delete().eq('id', slot_id);
+      if (slotErr) throw slotErr;
+      const { error: taskErr } = await supabase.from('tasks').delete().eq('id', task_id);
+      if (taskErr) throw taskErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+
+  const addBlockerSlot = useMutation({
+    mutationFn: async ({ start_time, end_time }: { start_time: string; end_time: string }) => {
+      const durationMin = (new Date(end_time).getTime() - new Date(start_time).getTime()) / 60000;
+      const { data: newTask, error: taskErr } = await supabase
+        .from('tasks')
+        .insert({
+          title: '',
+          description: '',
+          is_blocker: true,
+          estimated_min: Math.round(durationMin),
+          priority: 'Low',
+          completed: false,
+        })
+        .select()
+        .single();
+      if (taskErr) throw taskErr;
+      const { error: slotErr } = await supabase
+        .from('schedule_slots')
+        .insert({ task_id: newTask.id, start_time, end_time, locked: true });
+      if (slotErr) throw slotErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
   const toggleLock = useMutation({
-    mutationFn: async ({ id, locked }: { id: string; locked: boolean }) => {
+    mutationFn: async ({ id, locked, slot }: { id: string; locked: boolean; slot?: ScheduleSlot }) => {
+      // If unlocking a blocker slot, delete it entirely
+      if (!locked && slot?.task?.is_blocker) {
+        const { error: slotErr } = await supabase.from('schedule_slots').delete().eq('id', id);
+        if (slotErr) throw slotErr;
+        const { error: taskErr } = await supabase.from('tasks').delete().eq('id', slot.task_id);
+        if (taskErr) throw taskErr;
+        return;
+      }
       const { error } = await supabase
         .from('schedule_slots')
         .update({ locked })
         .eq('id', id);
       if (error) throw error;
     },
-    onMutate: async ({ id, locked }) => {
+    onMutate: async ({ id, locked, slot }) => {
       await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
       const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
-      queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
-        old?.map((s) => (s.id === id ? { ...s, locked } : s))
-      );
+      // Optimistically remove blocker slots or toggle lock
+      if (!locked && slot?.task?.is_blocker) {
+        queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
+          old?.filter((s) => s.id !== id)
+        );
+      } else {
+        queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
+          old?.map((s) => (s.id === id ? { ...s, locked } : s))
+        );
+      }
       return { previous };
     },
     onError: (_err, _vars, context) => {
@@ -484,13 +533,34 @@ export function useSchedule(tasks: Task[], settings: Settings) {
   });
 
   const addSlot = useMutation({
-    mutationFn: async ({ task_id, start_time, end_time }: { task_id: string; start_time: string; end_time: string }) => {
+    mutationFn: async ({ task_id, start_time, end_time, locked }: { task_id: string; start_time: string; end_time: string; locked?: boolean }) => {
       const { error } = await supabase
         .from('schedule_slots')
-        .insert({ task_id, start_time, end_time });
+        .insert({ task_id, start_time, end_time, locked: locked ?? false });
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
+    },
+  });
+
+  const deleteSlot = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('schedule_slots').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['schedule_slots'] });
+      const previous = queryClient.getQueryData<ScheduleSlot[]>(['schedule_slots']);
+      queryClient.setQueryData<ScheduleSlot[]>(['schedule_slots'], (old) =>
+        old?.filter((s) => s.id !== id)
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['schedule_slots'], context.previous);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule_slots'] });
     },
   });
@@ -537,5 +607,8 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     toggleLock,
     resizeTaskSlots,
     addSlot,
+    deleteSlot,
+    addBlockerSlot,
+    deleteBlockerSlot,
   };
 }
