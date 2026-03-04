@@ -9,6 +9,7 @@ const shortcutGroups = [
     label: 'Tasks',
     shortcuts: [
       { keys: ['S'], description: 'Select / deselect task (hover over card)' },
+      { keys: ['S', 'A'], chord: true, description: 'Select all tasks in column (hover over column)' },
       { keys: ['D'], description: 'Toggle selected tasks done / undone' },
       { keys: ['Delete', 'Backspace'], description: 'Delete selected tasks' },
       { keys: ['Escape'], description: 'Clear selection' },
@@ -39,7 +40,7 @@ export function HotkeysPanel() {
                 <span className="flex items-center gap-1.5">
                   {shortcut.keys.map((key, i) => (
                     <span key={key} className="flex items-center gap-1.5">
-                      {i > 0 && <span className="text-xs text-gray-400">/</span>}
+                      {i > 0 && <span className="text-xs text-gray-400">{'chord' in shortcut && shortcut.chord ? '+' : '/'}</span>}
                       <kbd className="inline-flex items-center justify-center min-w-[1.75rem] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300 shadow-sm">
                         {key}
                       </kbd>

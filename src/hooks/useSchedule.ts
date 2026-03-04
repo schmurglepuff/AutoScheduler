@@ -27,9 +27,16 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     mutationFn: async () => {
       const now = new Date().toISOString();
 
-      // 0+1+2. Parallelise: auto-lock past slots, fetch tasks, fetch locked slots
-      const [, tasksResult, lockedSlotsResult] = await Promise.all([
-        supabase.from('schedule_slots').update({ locked: true }).eq('locked', false).lt('start_time', now),
+      // 0. Auto-lock past slots first — must complete before fetching locked slots
+      //    (running it in parallel with the fetch caused a race where the fetch
+      //     missed freshly-locked slots, leading to duplicate scheduled blocks)
+      // Only lock slots that are fully in the past (end_time < now).
+      // Slots that have started but not yet ended are left alone so that
+      // manually-unlocked in-progress slots can be freely rescheduled.
+      await supabase.from('schedule_slots').update({ locked: true }).eq('locked', false).lt('end_time', now);
+
+      // 1+2. Now fetch tasks and locked slots in parallel
+      const [tasksResult, lockedSlotsResult] = await Promise.all([
         supabase.from('tasks').select('*, people_notes(*)').eq('is_blocker', false).order('created_at', { ascending: true }),
         supabase.from('schedule_slots').select('*, task:tasks(*)').eq('locked', true),
       ]);

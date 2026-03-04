@@ -6,6 +6,7 @@ import { TaskList } from '../tasks/TaskList';
 import { WeeklyCalendar } from '../calendar/WeeklyCalendar';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { HotkeysPanel } from '../settings/HotkeysPanel';
+import { ProjectsPage } from '../projects/ProjectsPage';
 import { TaskForm, type TaskFormHandle } from '../tasks/TaskForm';
 import { Modal } from '../ui/Modal';
 import { useSettings } from '../../hooks/useSettings';
@@ -83,6 +84,7 @@ export function AppShell() {
     priority: Priority;
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
+    project_id?: string | null;
   }) => {
     const tasksToCreate = shouldSplitTask(data.estimated_min, workdayMin)
       ? splitTaskData(data, workdayMin)
@@ -92,7 +94,7 @@ export function AppShell() {
       try {
         const createdTasks: Task[] = [];
         for (const t of tasksToCreate) {
-          const newTask = await createTask.mutateAsync(t);
+          const newTask = await createTask.mutateAsync({ ...t, project_id: data.project_id ?? null });
           if (newTask) createdTasks.push(newTask as Task);
         }
 
@@ -153,6 +155,7 @@ export function AppShell() {
     priority: Priority;
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
+    project_id?: string | null;
   }) => {
     if (!editingTask) return;
     const timeChanged = data.estimated_min !== editingTask.estimated_min;
@@ -271,6 +274,7 @@ export function AppShell() {
             />
           )}
           {currentView === 'hotkeys' && <HotkeysPanel />}
+          {currentView === 'projects' && <ProjectsPage />}
         </main>
       </div>
 

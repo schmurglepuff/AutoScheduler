@@ -17,6 +17,7 @@ import { WeekNavigator } from './WeekNavigator';
 import { DayColumn } from './DayColumn';
 import { ScheduledBlock } from './ScheduledBlock';
 import { MonthlyCalendar } from './MonthlyCalendar';
+import { useProjects } from '../../hooks/useProjects';
 
 interface WeeklyCalendarProps {
   slots: ScheduleSlot[];
@@ -56,8 +57,14 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
   const [activeSlot, setActiveSlot] = useState<ScheduleSlot | null>(null);
   const [overCellId, setOverCellId] = useState<string | null>(null);
   const [showDeadlineOnly, setShowDeadlineOnly] = useState(false);
+  const [projectFilterActive, setProjectFilterActive] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectBtnRef = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(() => new Date());
   const savedWeekOffsetRef = useRef(0);
+
+  const { projects } = useProjects();
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -274,6 +281,74 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                 </svg>
                 Deadlines
               </button>
+              <div className="relative">
+                <button
+                  ref={projectBtnRef}
+                  onClick={() => {
+                    if (selectedProjectId) setProjectFilterActive((v) => !v);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setProjectMenuOpen((v) => !v);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    projectFilterActive && selectedProjectId
+                      ? 'bg-accent/10 border-accent/40 text-accent hover:bg-accent/20'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                  title="Left-click to toggle filter · Right-click to choose project"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                  </svg>
+                  {selectedProjectId
+                    ? (projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project')
+                    : 'Project'}
+                </button>
+                {projectMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onPointerDown={() => setProjectMenuOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg py-1 text-sm">
+                      <button
+                        className={`w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+                          !selectedProjectId ? 'text-accent font-medium' : 'text-gray-700 dark:text-gray-300'
+                        }`}
+                        onClick={() => {
+                          setSelectedProjectId(null);
+                          setProjectFilterActive(false);
+                          setProjectMenuOpen(false);
+                        }}
+                      >
+                        All projects
+                      </button>
+                      {projects.length > 0 && (
+                        <div className="my-1 border-t border-gray-100 dark:border-gray-800" />
+                      )}
+                      {projects.map((p) => (
+                        <button
+                          key={p.id}
+                          className={`w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+                            selectedProjectId === p.id ? 'text-accent font-medium' : 'text-gray-700 dark:text-gray-300'
+                          }`}
+                          onClick={() => {
+                            setSelectedProjectId(p.id);
+                            setProjectFilterActive(true);
+                            setProjectMenuOpen(false);
+                          }}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                      {projects.length === 0 && (
+                        <p className="px-3 py-1.5 text-gray-400 italic">No projects yet</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           ) : undefined
         }
@@ -350,7 +425,12 @@ export function WeeklyCalendar({ slots, settings, onSlotClick, onMoveSlot, onTog
                   key={date.toISOString()}
                   date={date}
                   hours={hours}
-                  slots={showDeadlineOnly ? slots.filter((s) => s.task?.deadline) : slots}
+                  slots={(() => {
+                    let s = slots;
+                    if (showDeadlineOnly) s = s.filter((sl) => sl.task?.deadline);
+                    if (projectFilterActive && selectedProjectId) s = s.filter((sl) => sl.task?.project_id === selectedProjectId);
+                    return s;
+                  })()}
                   onSlotClick={onSlotClick}
                   onToggleLock={onToggleLock}
                   onToggleGroupLock={onToggleGroupLock}

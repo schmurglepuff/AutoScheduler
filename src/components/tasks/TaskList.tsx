@@ -26,6 +26,7 @@ import { InlineTaskCreator } from './InlineTaskCreator';
 import { InlineTaskEditor } from './InlineTaskEditor';
 import { useTasks } from '../../hooks/useTasks';
 import { useFocusAreas } from '../../hooks/useFocusAreas';
+import { useProjects } from '../../hooks/useProjects';
 
 interface TaskFormData {
   title: string;
@@ -36,6 +37,7 @@ interface TaskFormData {
   completed: boolean;
   people_notes: { person_name: string; note_text: string }[];
   focus_area_id?: string | null;
+  project_id?: string | null;
 }
 
 interface TaskListProps {
@@ -46,6 +48,8 @@ interface TaskListProps {
 
 export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksCreated }: TaskListProps) {
   const { tasks, isLoading, createTask, updateTask, deleteTask } = useTasks();
+  const { projects } = useProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [creatingInColumnId, setCreatingInColumnId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [overdueOpen, setOverdueOpen] = useState(true);
@@ -53,11 +57,14 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const isDragSelecting = useRef(false);
+  const sHeldRef = useRef(false);
+  const hoveredColumnTaskIdsRef = useRef<string[]>([]);
 
   const now = new Date();
   const q = query.toLowerCase().trim();
   const matches = (t: Task) =>
-    !q || t.title.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q);
+    (!q || t.title.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) &&
+    (selectedProjectId === null || t.project_id === selectedProjectId);
 
   const overdueTasks = tasks.filter(
     (t) => !t.completed && t.deadline !== null && new Date(t.deadline) < now && matches(t)
@@ -80,6 +87,7 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
         const newTask = await createTask.mutateAsync({
           ...t,
           focus_area_id: data.focus_area_id ?? null,
+          project_id: data.project_id ?? null,
         });
         if (newTask) createdTasks.push(newTask as Task);
       }
@@ -162,6 +170,22 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === 's' || e.key === 'S') sHeldRef.current = true;
+
+      if ((e.key === 'a' || e.key === 'A') && sHeldRef.current) {
+        const ids = hoveredColumnTaskIdsRef.current;
+        if (ids.length > 0) {
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) next.add(id);
+            return next;
+          });
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         // Priority: selectedIds → editingTaskId → creatingInColumnId
         if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
@@ -186,8 +210,15 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
       }
       setSelectedIds(new Set());
     };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 's' || e.key === 'S') sHeldRef.current = false;
+    };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [selectedIds, editingTaskId, creatingInColumnId, deleteTask, tasks, updateTask]);
 
   if (isLoading) {
@@ -225,10 +256,41 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
             )}
           </div>
         </div>
+        {projects.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setSelectedProjectId(null)}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                selectedProjectId === null
+                  ? 'bg-accent text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+            >
+              All
+            </button>
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProjectId(selectedProjectId === p.id ? null : p.id)}
+                className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedProjectId === p.id
+                    ? 'bg-accent text-white'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {overdueTasks.length > 0 && (
-        <div className="rounded-lg border border-red-300 dark:border-red-700 overflow-hidden">
+        <div
+          className="rounded-lg border border-red-300 dark:border-red-700 overflow-hidden"
+          onPointerEnter={() => { hoveredColumnTaskIdsRef.current = overdueTasks.map((t) => t.id); }}
+          onPointerLeave={() => { hoveredColumnTaskIdsRef.current = []; }}
+        >
           <button
             className="w-full flex items-center justify-between px-4 py-2 bg-red-500 text-white font-semibold text-sm"
             onClick={() => setOverdueOpen((o) => !o)}
@@ -293,11 +355,17 @@ export function TaskList({ settings, schedulerActive: _schedulerActive, onTasksC
           }}
           onCreateTask={handleCreate}
           onCancelCreate={() => setCreatingInColumnId(null)}
+          onColumnHover={(taskIds) => { hoveredColumnTaskIdsRef.current = taskIds; }}
+          defaultProjectId={selectedProjectId}
         />
       )}
 
       {completedTasks.length > 0 && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div
+          className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+          onPointerEnter={() => { hoveredColumnTaskIdsRef.current = completedTasks.map((t) => t.id); }}
+          onPointerLeave={() => { hoveredColumnTaskIdsRef.current = []; }}
+        >
           <button
             className="w-full flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-semibold text-sm"
             onClick={() => setDoneOpen((o) => !o)}
@@ -419,6 +487,8 @@ function SortableColumn({
   onCancelCreate,
   onRename,
   onDeleteColumn,
+  onColumnHover,
+  defaultProjectId,
 }: {
   column: FocusArea;
   tasks: Task[];
@@ -442,6 +512,8 @@ function SortableColumn({
   onCancelCreate: () => void;
   onRename: (name: string) => void;
   onDeleteColumn: () => void;
+  onColumnHover: (taskIds: string[]) => void;
+  defaultProjectId?: string | null;
 }) {
   const { setNodeRef: setDropRef } = useDroppable({ id: column.id });
   const { attributes, listeners, setNodeRef: setSortRef, transform, transition, isDragging } = useSortable({
@@ -487,6 +559,8 @@ function SortableColumn({
     <div
       ref={(node) => { setSortRef(node); setDropRef(node); }}
       style={style}
+      onPointerEnter={() => onColumnHover(tasks.map((t) => t.id))}
+      onPointerLeave={() => onColumnHover([])}
       className={`flex flex-col gap-3 rounded-lg p-2 min-h-[120px] transition-colors ${
         isOver && !isDragging ? 'bg-accent/10 ring-2 ring-accent/30' : ''
       }`}
@@ -553,6 +627,7 @@ function SortableColumn({
         <InlineTaskCreator
           workdayMin={workdayMin}
           focusAreaId={column.id}
+          defaultProjectId={defaultProjectId}
           onSubmit={onCreateTask}
           onCancel={onCancelCreate}
           isSubmitting={isSubmitting}
@@ -624,6 +699,8 @@ function FocusAreaColumns({
   onNewTaskInColumn,
   onCreateTask,
   onCancelCreate,
+  onColumnHover,
+  defaultProjectId,
 }: {
   tasks: Task[];
   editingTaskId: string | null;
@@ -643,6 +720,8 @@ function FocusAreaColumns({
   onNewTaskInColumn: (columnId: string) => void;
   onCreateTask: (data: TaskFormData) => void;
   onCancelCreate: () => void;
+  onColumnHover: (taskIds: string[]) => void;
+  defaultProjectId?: string | null;
 }) {
   const { focusAreas, createFocusArea, updateFocusArea, deleteFocusArea } = useFocusAreas();
   const { updateTask } = useTasks();
@@ -889,6 +968,8 @@ function FocusAreaColumns({
                 onCancelCreate={onCancelCreate}
                 onRename={(name) => updateFocusArea.mutate({ id: column.id, name })}
                 onDeleteColumn={() => handleDeleteColumn(column)}
+                onColumnHover={(taskIds) => onColumnHover(taskIds)}
+                defaultProjectId={defaultProjectId}
               />
             ))}
           </div>
