@@ -15,6 +15,8 @@ interface PersonNoteEntry {
 interface TaskFormProps {
   initialTask?: Task;
   defaultDeadline?: string;
+  /** Actual slot start time (ISO) — seeds the Start & End Time section when editing a scheduled task. */
+  initialSlotStart?: string;
   /** Pre-fill estimated time (in minutes) when creating from a calendar drag selection. */
   defaultEstimatedMin?: number;
   /** Minutes per workday (from settings). 1d in the form = this many minutes. Default 480. */
@@ -28,6 +30,8 @@ interface TaskFormProps {
     completed: boolean;
     people_notes: PersonNoteEntry[];
     project_id: string | null;
+    slot_start: string | null;
+    slot_end: string | null;
   }) => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -86,14 +90,14 @@ function snapToSlot(totalMin: number): { h: string; m: string } {
   };
 }
 
-function initTimeSlot(totalEstMin: number): { date: string; startH: string; startM: string; endH: string; endM: string } {
-  const now = new Date();
-  const startMinOfDay = now.getHours() * 60 + Math.floor(now.getMinutes() / 15) * 15;
+function initTimeSlot(totalEstMin: number, referenceIso?: string): { date: string; startH: string; startM: string; endH: string; endM: string } {
+  const ref = referenceIso ? new Date(referenceIso) : new Date();
+  const startMinOfDay = ref.getHours() * 60 + Math.floor(ref.getMinutes() / 15) * 15;
   const start = snapToSlot(startMinOfDay);
   const end = snapToSlot(startMinOfDay + totalEstMin);
-  const y = now.getFullYear();
-  const mo = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
+  const y = ref.getFullYear();
+  const mo = String(ref.getMonth() + 1).padStart(2, '0');
+  const d = String(ref.getDate()).padStart(2, '0');
   return { date: `${y}-${mo}-${d}`, startH: start.h, startM: start.m, endH: end.h, endM: end.m };
 }
 
@@ -102,7 +106,7 @@ export interface TaskFormHandle {
 }
 
 export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskForm(
-  { initialTask, defaultDeadline, defaultEstimatedMin, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting, hideActions }: TaskFormProps,
+  { initialTask, defaultDeadline, initialSlotStart, defaultEstimatedMin, workdayMin = 480, onSubmit, onCancel, onDelete, isSubmitting, hideActions }: TaskFormProps,
   ref
 ) {
   const { projects, createProject } = useProjects();
@@ -117,7 +121,7 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
   const [showTimeSlot, setShowTimeSlot] = useState(false);
   const [slotTimes] = useState(() => {
     const totalMin = parseInt(initEst.days) * workdayMin + parseInt(initEst.hours) * 60 + parseInt(initEst.mins);
-    return initTimeSlot(totalMin);
+    return initTimeSlot(totalMin, initialSlotStart ?? defaultDeadline);
   });
   const [slotDate, setSlotDate] = useState(slotTimes.date);
   const [slotStartH, setSlotStartH] = useState(slotTimes.startH);
@@ -185,6 +189,9 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
         deadline = new Date(y, m - 1, d, parseInt(dlHour), parseInt(dlMinute)).toISOString();
       }
       const totalMin = parseInt(estDays) * workdayMin + parseInt(estHours) * 60 + parseInt(estMins);
+      const [sy, smo, sd] = slotDate.split('-').map(Number);
+      const slot_start = showTimeSlot ? new Date(sy, smo - 1, sd, parseInt(slotStartH), parseInt(slotStartM)).toISOString() : null;
+      const slot_end = showTimeSlot ? new Date(sy, smo - 1, sd, parseInt(slotEndH), parseInt(slotEndM)).toISOString() : null;
       localStorage.setItem('lastProjectId', projectId ?? '');
       onSubmit({
         title: title.trim(),
@@ -195,9 +202,11 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
         completed,
         people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
         project_id: projectId,
+        slot_start,
+        slot_end,
       });
     },
-  }), [title, description, noDeadline, dlDate, dlHour, dlMinute, estDays, estHours, estMins, priority, completed, notes, projectId, onSubmit]);
+  }), [title, description, noDeadline, dlDate, dlHour, dlMinute, estDays, estHours, estMins, priority, completed, notes, projectId, showTimeSlot, slotDate, slotStartH, slotStartM, slotEndH, slotEndM, onSubmit]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,6 +220,9 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
       deadline = deadlineDate.toISOString();
     }
 
+    const [sy, smo, sd] = slotDate.split('-').map(Number);
+    const slot_start = showTimeSlot ? new Date(sy, smo - 1, sd, parseInt(slotStartH), parseInt(slotStartM)).toISOString() : null;
+    const slot_end = showTimeSlot ? new Date(sy, smo - 1, sd, parseInt(slotEndH), parseInt(slotEndM)).toISOString() : null;
     localStorage.setItem('lastProjectId', projectId ?? '');
     onSubmit({
       title: title.trim(),
@@ -221,6 +233,8 @@ export const TaskForm = forwardRef<TaskFormHandle, TaskFormProps>(function TaskF
       completed,
       people_notes: notes.filter((n) => n.person_name.trim() && n.note_text.trim()),
       project_id: projectId,
+      slot_start,
+      slot_end,
     });
   };
 

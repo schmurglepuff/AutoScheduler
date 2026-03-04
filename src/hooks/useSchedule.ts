@@ -27,12 +27,29 @@ export function useSchedule(tasks: Task[], settings: Settings) {
     mutationFn: async () => {
       const now = new Date().toISOString();
 
-      // 0. Auto-lock past slots first — must complete before fetching locked slots
-      //    (running it in parallel with the fetch caused a race where the fetch
-      //     missed freshly-locked slots, leading to duplicate scheduled blocks)
-      // Only lock slots that are fully in the past (end_time < now).
-      // Slots that have started but not yet ended are left alone so that
-      // manually-unlocked in-progress slots can be freely rescheduled.
+      // 0. Delete past UNLOCKED slots for non-blocker, non-completed tasks so the
+      //    scheduler can freely reschedule them to future slots.
+      //    Must run BEFORE step 0b so we only remove slots the user hasn't intentionally
+      //    locked. Locked slots are left untouched — if a task is locked, leave it.
+      //    Currently-in-progress slots (end_time > now) are preserved.
+      const { data: reschedulableTasks } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('completed', false)
+        .eq('is_blocker', false);
+      if (reschedulableTasks && reschedulableTasks.length > 0) {
+        await supabase
+          .from('schedule_slots')
+          .delete()
+          .in('task_id', reschedulableTasks.map((t: { id: string }) => t.id))
+          .eq('locked', false)
+          .lt('end_time', now);
+      }
+
+      // 0b. Auto-lock remaining past unlocked slots (blockers, completed tasks, etc.)
+      //     Must complete before fetching locked slots — running it in parallel with
+      //     the fetch caused a race where freshly-locked slots were missed.
+      //     Only locks slots fully in the past (end_time < now); in-progress slots are left alone.
       await supabase.from('schedule_slots').update({ locked: true }).eq('locked', false).lt('end_time', now);
 
       // 1+2. Now fetch tasks and locked slots in parallel
