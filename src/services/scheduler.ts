@@ -121,7 +121,7 @@ export function generateSchedule(
   }
 
   const now = new Date();
-  const incompleteTasks = tasks.filter((t) => !t.completed);
+  const incompleteTasks = tasks.filter((t) => !t.completed && !t.is_blocker);
 
   // Tier 1: tasks WITH future deadlines — earliest deadline first, priority as tiebreaker
   const withDeadline = incompleteTasks

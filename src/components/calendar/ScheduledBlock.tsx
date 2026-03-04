@@ -36,12 +36,55 @@ interface ScheduledBlockProps {
 }
 
 export function ScheduledBlock({ slot, topPercent, heightPercent, leftPercent, widthPercent, onClick, onToggleLock, onToggleGroupLock, onToggleComplete, isDragOverlay, workDayEnd }: ScheduledBlockProps) {
+  const isBlocker = !!slot.task?.is_blocker;
   const isLocked = !!slot.locked;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `slot-${slot.id}`,
     data: { slot },
     disabled: isLocked,
   });
+
+  // Render simplified "Blocked" bar for blocker slots
+  if (isBlocker) {
+    return (
+      <div
+        className={`${isDragOverlay ? '' : 'absolute z-[3]'} rounded-md overflow-hidden
+          bg-gray-200/80 dark:bg-gray-700/60 border border-gray-300 dark:border-gray-600`}
+        style={{
+          ...(!isDragOverlay ? {
+            top: `${topPercent}%`,
+            height: `${Math.max(heightPercent, 4)}%`,
+            left: leftPercent !== undefined ? `calc(${leftPercent}% + 2px)` : '4px',
+            right: widthPercent !== undefined ? 'auto' : '4px',
+            width: widthPercent !== undefined ? `calc(${widthPercent}% - 4px)` : undefined,
+          } : {}),
+        }}
+        title="Blocked time — click lock to remove"
+        onClick={(e) => {
+          if ((e.target as Element).closest('button')) return;
+        }}
+      >
+        <button
+          type="button"
+          className="absolute top-0 right-0 bottom-0 w-7 z-[2] flex items-center justify-center rounded-r-md
+            bg-gray-400/20 hover:bg-red-400/30 transition-colors"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleLock?.(slot);
+          }}
+          title="Remove blocked time"
+        >
+          <svg className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z" />
+          </svg>
+        </button>
+        <div className="px-2.5 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 select-none">
+          Blocked
+        </div>
+      </div>
+    );
+  }
 
   const priority = slot.task?.priority || 'Medium';
   const pStyle = priorityStyle[priority] || priorityStyle.Medium;
@@ -113,12 +156,12 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, leftPercent, w
         }
       }}
       onMouseLeave={() => { hoveredRef.current = false; toggledRef.current = false; }}
-      className={`group scheduled-block ${isDragOverlay ? '' : 'absolute'} rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
+      className={`group scheduled-block ${isDragOverlay ? '' : 'absolute z-[3]'} rounded-md border-l-3 px-2.5 py-1.5 overflow-hidden touch-none
         ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
         ${pStyle.bg} transition-all
-        ${isLocked ? 'ring-2 ring-gray-400 dark:ring-gray-500' : ''}
-        ${isFullyOverdue && !isLocked ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
-        ${isPartiallyOverdue && !isLocked ? 'ring-2 ring-amber-400 dark:ring-amber-400' : ''}
+        ${isLocked && !isFullyOverdue && !isPartiallyOverdue ? 'ring-2 ring-gray-400 dark:ring-gray-500' : ''}
+        ${isFullyOverdue ? 'ring-2 ring-red-500 dark:ring-red-500' : ''}
+        ${isPartiallyOverdue ? 'ring-2 ring-amber-400 dark:ring-amber-400' : ''}
         ${isDragging ? 'opacity-30' : ''}
         ${isDragOverlay ? 'shadow-lg rotate-1 opacity-90' : ''}`}
       style={{
@@ -138,7 +181,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, leftPercent, w
       title={`${slot.task?.title || 'Task'}\n${formatTime(start)} – ${formatTime(end)}${isFullyOverdue && deadlineDate ? `\n⚠ Ends past deadline (${formatTime(deadlineDate)})` : isFullyOverdue ? '\n⚠ Overdue' : ''}`}
     >
       {/* Overdue wash overlay — red for fully overdue, amber for partially overdue */}
-      {isFullyOverdue && !isLocked && !isDragOverlay && (
+      {isFullyOverdue && !isDragOverlay && (
         <div
           className="absolute top-0 left-0 right-0 bg-red-500/20 dark:bg-red-500/30 rounded-md z-[1] pointer-events-none flex items-center justify-center"
           style={{ height: `${overduePercent}%` }}
@@ -148,7 +191,7 @@ export function ScheduledBlock({ slot, topPercent, heightPercent, leftPercent, w
           </svg>
         </div>
       )}
-      {isPartiallyOverdue && !isLocked && !isDragOverlay && (
+      {isPartiallyOverdue && !isDragOverlay && (
         <div
           className="absolute top-0 left-0 right-0 bg-amber-400/20 dark:bg-amber-400/30 rounded-md z-[1] pointer-events-none"
           style={{ height: `${overduePercent}%` }}

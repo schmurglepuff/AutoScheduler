@@ -19,6 +19,7 @@ export interface Task {
   split_group_id?: string | null;
   split_index?: number | null;
   focus_area_id?: string | null;
+  is_blocker?: boolean;
 }
 
 export interface PersonNote {

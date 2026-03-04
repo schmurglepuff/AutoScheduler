@@ -16,6 +16,7 @@ export function useTasks() {
       const { data, error } = await supabase
         .from('tasks')
         .select('*, people_notes(*)')
+        .eq('is_blocker', false)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data || [];
