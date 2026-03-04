@@ -27,6 +27,7 @@ function defaultDeadlineValues() {
 interface InlineTaskCreatorProps {
   workdayMin: number;
   focusAreaId?: string | null;
+  defaultProjectId?: string | null;
   onSubmit: (data: {
     title: string;
     description: string;
@@ -36,12 +37,13 @@ interface InlineTaskCreatorProps {
     completed: boolean;
     people_notes: { person_name: string; note_text: string }[];
     focus_area_id?: string | null;
+    project_id?: string | null;
   }) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }
 
-export function InlineTaskCreator({ workdayMin, focusAreaId, onSubmit, onCancel, isSubmitting }: InlineTaskCreatorProps) {
+export function InlineTaskCreator({ workdayMin, focusAreaId, defaultProjectId, onSubmit, onCancel, isSubmitting }: InlineTaskCreatorProps) {
   const [title, setTitle] = useState('');
   const [estDays, setEstDays] = useState('0');
   const [estHours, setEstHours] = useState('1');
@@ -80,6 +82,7 @@ export function InlineTaskCreator({ workdayMin, focusAreaId, onSubmit, onCancel,
       completed: false,
       people_notes: [],
       focus_area_id: focusAreaId ?? null,
+      project_id: defaultProjectId ?? null,
     });
   };
 
